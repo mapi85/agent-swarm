@@ -11,11 +11,9 @@ Plateforme d'essaim d'agents autonomes. Deux options : **Docker** (recommandé �
 - Une clé API Anthropic (`ANTHROPIC_API_KEY`).
 - Ubuntu 22.04+ avec accès `sudo`.
 
-> Archive disponible en deux formats, contenu identique (à la racine, sans `.venv` ni `data`) :
-> - ZIP : `unzip agent-swarm.zip` (installer `unzip` au besoin : `sudo apt install -y unzip`)
-> - TAR.GZ : `tar xzf agent-swarm.tar.gz` (natif, aucun paquet à installer)
->
-> L'environnement virtuel n'est **pas** dans l'archive : l'option Docker n'en a pas besoin ; l'option systemd le crée (étape 3).
+> Le code est synchronisé via git : https://github.com/mapi85/agent-swarm
+> `.env` (secrets) et `data/` (base + workdirs) sont ignorés par git : un `git pull` ne les touche jamais.
+> Si le dépôt est privé, autorise le serveur : clé SSH de déploiement (`git@github.com:mapi85/agent-swarm.git`) ou token HTTPS en lecture seule.
 
 ---
 
@@ -29,12 +27,12 @@ sudo apt install -y docker.io docker-compose-plugin
 sudo systemctl enable --now docker
 ```
 
-### 2. Déposer et décompresser le projet
+### 2. Récupérer le projet
 
 ```bash
-mkdir -p ~/agent-swarm && cd ~/agent-swarm
-# Copie agent-swarm.zip ici (scp / sftp), puis :
-unzip agent-swarm.zip
+sudo apt install -y git
+git clone https://github.com/mapi85/agent-swarm.git ~/agent-swarm
+cd ~/agent-swarm
 ```
 
 ### 3. Configurer
@@ -60,7 +58,7 @@ sudo docker compose up -d --build
 sudo docker compose logs -f          # suivre les logs
 sudo docker compose restart          # redémarrer
 sudo docker compose down             # arrêter
-sudo docker compose up -d --build    # mettre à jour après modification du code
+git pull && sudo docker compose up -d --build    # mettre à jour (code depuis GitHub)
 ```
 
 ---
@@ -74,13 +72,12 @@ sudo apt update
 sudo apt install -y python3-venv python3-pip git
 ```
 
-### 2. Déposer le projet
+### 2. Récupérer le projet
 
 ```bash
 sudo mkdir -p /opt/agent-swarm && sudo chown $USER /opt/agent-swarm
+git clone https://github.com/mapi85/agent-swarm.git /opt/agent-swarm
 cd /opt/agent-swarm
-# Copie agent-swarm.zip ici, puis :
-unzip agent-swarm.zip
 ```
 
 ### 3. Environnement virtuel + dépendances
@@ -182,7 +179,7 @@ sudo nginx -t && sudo systemctl reload nginx
 4. Confie-lui une **tâche**, ou décris une **mission** dans l'onglet Missions pour laisser le superviseur planifier.
 5. Surveille le **flux**, la **cloche de notifications** 🔔 (questions/alertes) et les **Ressources & artefacts**.
 
-> **Mise à jour d'une installation existante** : remplace les fichiers du projet (l'archive ne contient ni `data/` ni `.env`) puis reconstruis/redémarre. Les migrations de base sont automatiques au démarrage — y compris la migration des anciens réglages primaire/fallback vers la table des providers.
+> **Mise à jour d'une installation existante** : `git pull` puis reconstruis/redémarre (`sudo docker compose up -d --build` ou `sudo systemctl restart agent-swarm`). `.env` et `data/` ne sont pas touchés. Les migrations de base sont automatiques au démarrage — y compris la migration des anciens réglages primaire/fallback vers la table des providers.
 
 ---
 
