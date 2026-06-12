@@ -1,0 +1,14 @@
+# Environnement & secrets
+.venv/
+.env
+
+# Données runtime (base + workdirs des agents)
+data/
+
+# Python
+__pycache__/
+*.pyc
+
+# Archives de déploiement (générées)
+agent-swarm.zip
+agent-swarm.tar.gz

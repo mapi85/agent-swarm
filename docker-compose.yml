@@ -1,0 +1,17 @@
+services:
+  swarm:
+    build: .
+    container_name: agent-swarm
+    env_file: .env
+    ports:
+      - "127.0.0.1:8000:8000"   # n'expose qu'en local ; mettre derrière un reverse proxy + auth pour l'extérieur
+    volumes:
+      - swarm-data:/app/data     # persistance : base + workdirs des agents
+    restart: unless-stopped
+    # Garde-fous de ressources (l'hôte reste protégé même si un agent s'emballe)
+    mem_limit: 4g
+    pids_limit: 512
+    # Pour restreindre l'egress réseau, brancher un réseau dédié + pare-feu/proxy.
+
+volumes:
+  swarm-data:

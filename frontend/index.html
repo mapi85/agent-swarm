@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Essaim d'agents — Supervision</title>
+<style>
+  :root{
+    --bg:#f4f6fa; --panel:#ffffff; --panel2:#f0f3f8; --border:#dbe1ea;
+    --text:#1b2430; --muted:#6b7686; --accent:#2f6fed; --accent-soft:#e7f0ff;
+    --green:#1a9b5b; --orange:#c97a14; --red:#d83a3a; --purple:#7a52cf;
+    --shadow:0 1px 3px rgba(20,30,50,.08);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.55 "Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text)}
+  header{display:flex;align-items:center;gap:12px;padding:9px 16px;background:var(--panel);border-bottom:1px solid var(--border);box-shadow:var(--shadow);position:sticky;top:0;z-index:30}
+  header h1{font-size:16px;margin:0;font-weight:650;white-space:nowrap}
+  header h1 span{color:var(--accent)}
+  nav{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}
+  nav::-webkit-scrollbar{display:none}
+  nav button{background:transparent;color:var(--muted);border:0;padding:7px 12px;border-radius:7px;font-size:13.5px;cursor:pointer;font-weight:500;white-space:nowrap}
+  nav button.active{background:var(--accent-soft);color:var(--accent)}
+  nav button:hover:not(.active){background:var(--panel2)}
+  /* cloche notifications */
+  .bellwrap{position:relative;margin-left:auto;flex:none}
+  .bellbtn{background:transparent;border:0;font-size:19px;cursor:pointer;padding:5px 8px;border-radius:8px;position:relative;color:var(--text)}
+  .bellbtn:hover{background:var(--panel2)}
+  .bellbtn .bdg{position:absolute;top:-2px;right:-2px;background:var(--red);color:#fff;border-radius:9px;font-size:10px;padding:1px 5px;font-weight:700;display:none}
+  #notif-panel{display:none;position:fixed;top:50px;right:10px;width:430px;max-width:calc(100vw - 20px);max-height:75vh;overflow-y:auto;background:var(--panel);border:1px solid var(--border);border-radius:11px;box-shadow:0 12px 40px rgba(20,30,50,.22);z-index:50;padding:14px}
+  #notif-panel.open{display:block}
+  #notif-panel .np-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+  #notif-panel .np-head h3{margin:0;font-size:14px;flex:1}
+  #notif-panel select{width:auto}
+  .view{display:none}
+  .view.active{display:block}
+  /* boutons */
+  button{background:var(--accent);color:#fff;border:0;border-radius:7px;padding:7px 14px;font-size:13px;cursor:pointer;font-family:inherit}
+  button:hover{filter:brightness(1.06)}
+  button.secondary{background:var(--panel);border:1px solid var(--border);color:var(--text)}
+  button.danger{background:#fdeaea;color:var(--red);border:1px solid #f3c9c9}
+  button.small{padding:4px 10px;font-size:12px}
+  .full{width:100%}
+  a{color:var(--accent)}
+  /* tuiles rétractables */
+  details.tile{background:var(--panel);border:1px solid var(--border);border-radius:9px;box-shadow:var(--shadow);margin-bottom:10px;overflow:hidden}
+  details.tile>summary{list-style:none;cursor:pointer;padding:9px 13px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  details.tile>summary::-webkit-details-marker{display:none}
+  details.tile>summary::before{content:'▸';color:var(--muted);font-size:11px;transition:.15s;flex:none}
+  details.tile[open]>summary::before{transform:rotate(90deg)}
+  details.tile>summary:hover{background:var(--panel2)}
+  details.tile .tile-body{padding:10px 14px;border-top:1px solid var(--border)}
+  /* ===== Tableau de bord ===== */
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px}
+  .kpi{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:13px 16px;box-shadow:var(--shadow);cursor:default}
+  .kpi.click{cursor:pointer} .kpi.click:hover{border-color:var(--accent)}
+  .kpi .kv{font-size:23px;font-weight:700;line-height:1.2}
+  .kpi .kl{color:var(--muted);font-size:12px;margin-top:2px}
+  .kpi.warn .kv{color:var(--orange)} .kpi.alert .kv{color:var(--red)} .kpi.ok .kv{color:var(--green)}
+  .dash-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;align-items:start}
+  table.stats-t{width:100%;border-collapse:collapse;font-size:13px}
+  table.stats-t th{text-align:left;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding:7px 12px;border-bottom:1px solid var(--border)}
+  table.stats-t td{padding:6px 12px;border-bottom:1px solid var(--panel2)}
+  table.stats-t td.num,table.stats-t th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .agent-strip{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px}
+  .astate{display:flex;align-items:center;gap:7px;background:var(--panel);border:1px solid var(--border);border-radius:18px;padding:5px 12px;font-size:12.5px;cursor:pointer;box-shadow:var(--shadow)}
+  .astate:hover{border-color:var(--accent)}
+  /* états d'agent */
+  .dot{width:9px;height:9px;border-radius:50%;flex:none}
+  .dot.running{background:var(--green);box-shadow:0 0 0 3px #d6f0e2}
+  .dot.paused{background:var(--orange)}
+  .dot.awaiting{background:var(--purple);box-shadow:0 0 0 3px #ece4f9}
+  .dot.scheduled{background:var(--accent)}
+  .dot.idle{background:#aeb7c4}
+  .state-pill{font-size:11px;padding:2px 10px;border-radius:10px;border:1px solid var(--border);white-space:nowrap}
+  .state-pill.running{color:var(--green);border-color:#bfe6d0;background:#eafaf1}
+  .state-pill.paused{color:var(--orange);border-color:#f0dcbb;background:#fdf6ea}
+  .state-pill.awaiting{color:var(--purple);border-color:#ddccf5;background:#f1ebfb}
+  .state-pill.scheduled{color:var(--accent);border-color:#cfe0fb;background:var(--accent-soft)}
+  .state-pill.idle{color:var(--muted)}
+  /* ===== Supervision ===== */
+  #view-super{grid-template-columns:330px 1fr;height:calc(100vh - 52px)}
+  #view-super.active{display:grid}
+  #agents-col{border-right:1px solid var(--border);overflow-y:auto;padding:14px;background:var(--panel)}
+  #agents-col h2,.section-h{font-size:11.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:6px 0 10px;font-weight:650}
+  .agent-card{background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:10px 12px;margin-bottom:10px;cursor:pointer;transition:.15s;box-shadow:var(--shadow)}
+  .agent-card:hover{border-color:var(--accent)}
+  .agent-card.selected{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+  .agent-card .row1{display:flex;align-items:center;gap:8px}
+  .agent-card .name{font-weight:650}
+  .agent-card .desc{color:var(--muted);font-size:12.5px;margin-top:2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .agent-card .meta{color:var(--muted);font-size:11.5px;margin-top:6px}
+  .badge{font-size:10.5px;border-radius:10px;padding:1px 8px;margin-left:auto}
+  .badge.tasks{background:#fdf0d8;color:var(--orange)}
+  #detail{overflow-y:auto;padding:18px 22px}
+  .placeholder{color:var(--muted);margin-top:40px;text-align:center}
+  .detail-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .detail-head h2{margin:0;font-size:19px}
+  .mission{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin:12px 0;color:var(--muted);white-space:pre-wrap;font-size:13px;max-height:130px;overflow-y:auto}
+  .actions{display:flex;gap:8px;margin:10px 0 16px;flex-wrap:wrap}
+  .cols{display:grid;grid-template-columns:minmax(280px,380px) 1fr;gap:18px;align-items:start}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:9px;overflow:hidden;box-shadow:var(--shadow)}
+  .panel h3{margin:0;padding:9px 14px;font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border-bottom:1px solid var(--border);font-weight:650}
+  details.panel>summary{list-style:none;cursor:pointer;padding:9px 14px;font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:650;display:flex;align-items:center;gap:7px}
+  details.panel>summary::-webkit-details-marker{display:none}
+  details.panel>summary::before{content:'▸';font-size:10px;transition:.15s}
+  details.panel[open]>summary::before{transform:rotate(90deg)}
+  details.panel[open]>summary{border-bottom:1px solid var(--border)}
+  .session-item,.task-item{padding:9px 14px;border-bottom:1px solid var(--border);cursor:pointer;font-size:13px}
+  .session-item:last-child,.task-item:last-child{border-bottom:0}
+  .session-item:hover{background:var(--panel2)}
+  .session-item.selected{background:var(--accent-soft);border-left:3px solid var(--accent);padding-left:11px}
+  .session-item .obj{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .session-item .sub,.task-item .sub{color:var(--muted);font-size:11.5px;margin-top:2px}
+  details.titem{border-bottom:1px solid var(--border);font-size:13px}
+  details.titem:last-child{border-bottom:0}
+  details.titem>summary{list-style:none;cursor:pointer;padding:8px 14px;display:flex;align-items:baseline;gap:7px}
+  details.titem>summary::-webkit-details-marker{display:none}
+  details.titem>summary:hover{background:var(--panel2)}
+  details.titem>summary .tsum{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
+  details.titem .tbody{padding:4px 14px 10px;color:var(--muted);white-space:pre-wrap}
+  .st{font-weight:650}
+  .st.running{color:var(--green)} .st.planned{color:var(--accent)} .st.completed{color:var(--muted)}
+  .st.failed,.st.interrupted,.st.cancelled{color:var(--red)} .st.pending{color:var(--orange)}
+  .st.done{color:var(--green)} .st.in_progress{color:var(--accent)}
+  #events{max-height:60vh;overflow-y:auto;padding:6px 0;font-size:13px}
+  .ev{padding:5px 14px;border-left:3px solid transparent;white-space:pre-wrap;word-break:break-word}
+  .ev .ts{color:var(--muted);font-size:11px;margin-right:8px}
+  .ev.text{border-color:var(--accent)}
+  .ev.thinking{border-color:var(--purple);color:var(--muted);font-style:italic}
+  .ev.tool_use{border-color:var(--orange);color:#9a5e0c;font-family:Consolas,monospace;font-size:12px}
+  .ev.tool_result{border-color:#c3ccd8;color:var(--muted);font-family:Consolas,monospace;font-size:12px}
+  .ev.status{border-color:var(--green);color:#157a47}
+  .ev.error{border-color:var(--red);color:var(--red)}
+  .report{background:var(--panel2);border-top:1px solid var(--border);padding:10px 14px;font-size:13px;white-space:pre-wrap}
+  /* ===== Vues génériques ===== */
+  .page{max-width:1280px;margin:0 auto;padding:22px}
+  .page h2{margin:0 0 4px;font-size:20px}
+  .page .sub{color:var(--muted);margin-bottom:18px}
+  .toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+  .toolbar input[type=search]{min-width:140px;flex:1}
+  .toolbar select{width:auto;min-width:120px}
+  .grid{display:grid;grid-template-columns:1fr;gap:18px}
+  @media(min-width:980px){.grid.duo{grid-template-columns:1fr 1fr}}
+  input,textarea,select{width:100%;background:var(--panel);border:1px solid var(--border);border-radius:7px;color:var(--text);padding:7px 10px;font:inherit}
+  textarea{resize:vertical;min-height:70px}
+  label{display:block;font-size:12px;color:var(--muted);margin:10px 0 4px;font-weight:600}
+  .card-list{display:flex;flex-direction:column;gap:8px}
+  .res-row{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:9px 12px;box-shadow:var(--shadow);cursor:pointer}
+  .res-row:hover{border-color:var(--accent)}
+  .res-row .ico{font-size:18px}
+  .res-row .grow{flex:1;min-width:0}
+  .res-row .rname{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .res-row .rsub{color:var(--muted);font-size:11.5px}
+  .chip{font-size:10.5px;border-radius:9px;padding:1px 8px;border:1px solid var(--border);color:var(--muted);white-space:nowrap}
+  .chip.shared{background:#eaf6ee;color:var(--green);border-color:#c6e6d2}
+  .chip.agent{background:var(--accent-soft);color:var(--accent);border-color:#cfe0fb}
+  .chip.task{background:#fdf0d8;color:var(--orange);border-color:#f0dcbb}
+  .chip.anthropic{background:#f1ebfb;color:var(--purple);border-color:#ddccf5}
+  .chip.openai{background:#eaf6ee;color:var(--green);border-color:#c6e6d2}
+  .chip.default{background:var(--accent-soft);color:var(--accent);border-color:#cfe0fb;font-weight:700}
+  .notif{background:var(--panel);border:1px solid var(--border);border-left:4px solid var(--accent);border-radius:8px;padding:12px 14px;margin-bottom:12px;box-shadow:var(--shadow)}
+  .notif.question{border-left-color:var(--purple)}
+  .notif.alert{border-left-color:var(--orange)}
+  .notif.answered,.notif.dismissed{opacity:.6;border-left-color:#c3ccd8}
+  .notif .nhead{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);margin-bottom:5px;flex-wrap:wrap}
+  .notif .ntype{font-weight:700;text-transform:uppercase;font-size:10.5px;letter-spacing:.05em}
+  .notif.question .ntype{color:var(--purple)} .notif.alert .ntype{color:var(--orange)}
+  .notif .ncontent{white-space:pre-wrap}
+  .notif .nreply{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+  .notif .nreply input{flex:1;min-width:140px}
+  .notif .nanswer{background:var(--panel2);border-radius:7px;padding:8px 10px;margin-top:8px;font-size:13px}
+  /* missions */
+  details.proj{background:var(--panel);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow);margin-bottom:14px;overflow:hidden}
+  details.proj>summary{list-style:none;cursor:pointer;padding:13px 16px}
+  details.proj>summary::-webkit-details-marker{display:none}
+  details.proj>summary:hover{background:var(--panel2)}
+  .proj .ptitle{font-weight:650;font-size:15px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .proj .ptitle::before{content:'▸';color:var(--muted);font-size:12px;transition:.15s}
+  details.proj[open] .ptitle::before{transform:rotate(90deg)}
+  .proj .psum{color:var(--muted);font-size:13px;margin-top:5px;white-space:pre-wrap}
+  .proj-status{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;padding:2px 9px;border-radius:9px;border:1px solid var(--border)}
+  .proj-status.proposed{color:var(--purple);background:#f1ebfb;border-color:#ddccf5}
+  .proj-status.running{color:var(--accent);background:var(--accent-soft);border-color:#cfe0fb}
+  .proj-status.completed{color:var(--green);background:#eafaf1;border-color:#bfe6d0}
+  .proj-status.needs_attention{color:var(--red);background:#fdeaea;border-color:#f3c9c9}
+  .proj-status.archived{color:var(--muted)}
+  .pbar{height:6px;background:var(--panel2);border-radius:4px;overflow:hidden;margin-top:9px}
+  .pbar > i{display:block;height:100%;background:var(--green)}
+  .wave{padding:10px 16px;border-top:1px solid var(--border)}
+  .wave .wlabel{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:7px;font-weight:650}
+  .ptask{display:flex;align-items:flex-start;gap:9px;padding:6px 0}
+  .ptask .pt-ico{font-size:14px;line-height:1.4}
+  .ptask .pt-body{flex:1;min-width:0}
+  .ptask .pt-title{font-weight:600;font-size:13px}
+  .ptask .pt-meta{color:var(--muted);font-size:11.5px}
+  .ptask .pt-desc{color:var(--muted);font-size:12px;margin-top:2px}
+  .pactions{padding:12px 16px;display:flex;gap:8px;border-top:1px solid var(--border);background:var(--panel2);flex-wrap:wrap}
+  .new-agent{font-size:12px;color:var(--orange);background:#fdf6ea;border:1px solid #f0dcbb;border-radius:7px;padding:6px 10px;margin:10px 16px 0;display:inline-block}
+  .settings-card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:18px 20px;box-shadow:var(--shadow);margin-bottom:18px;max-width:760px}
+  .prov-row{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:12px 14px;box-shadow:var(--shadow);margin-bottom:10px;flex-wrap:wrap}
+  .prov-row .grow{flex:1;min-width:180px}
+  .prov-row .pname{font-weight:650}
+  .prov-row .psub{color:var(--muted);font-size:12px;word-break:break-all}
+  .row-inline{display:flex;align-items:center;gap:8px;margin:12px 0 4px}
+  .row-inline input[type=checkbox]{width:auto}
+  .row-inline label{margin:0}
+  .hint{color:var(--muted);font-size:12px;margin-top:4px}
+  .empty{color:var(--muted);padding:24px;text-align:center}
+  /* modales */
+  dialog{background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:11px;padding:20px 22px;width:540px;max-width:94vw;box-shadow:0 12px 40px rgba(20,30,50,.2)}
+  dialog::backdrop{background:rgba(20,30,50,.35)}
+  dialog h3{margin:0 0 14px;font-size:16px}
+  .dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+  #dlgPreview{width:760px}
+  #dlgPreview .body{max-height:62vh;overflow:auto;border:1px solid var(--border);border-radius:8px}
+  #dlgPreview pre{margin:0;padding:14px;font:12.5px/1.5 Consolas,monospace;white-space:pre-wrap;word-break:break-word}
+  #dlgPreview img{max-width:100%;display:block}
+  /* ===== Responsive ===== */
+  @media(max-width:900px){
+    header{padding:8px 10px;gap:8px}
+    header h1 .htxt{display:none}
+    #view-super.active{display:block;height:auto}
+    #agents-col{border-right:0;border-bottom:1px solid var(--border);max-height:42vh}
+    #detail{padding:14px}
+    .cols{grid-template-columns:1fr}
+    .page{padding:14px}
+    #events{max-height:48vh}
+    .kpi .kv{font-size:19px}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🐝 <span class="htxt">Essaim <span>· supervision</span></span></h1>
+  <nav>
+    <button data-view="dash" class="active" onclick="showView('dash')">Tableau de bord</button>
+    <button data-view="super" onclick="showView('super')">Supervision</button>
+    <button data-view="missions" onclick="showView('missions')">Missions</button>
+    <button data-view="resources" onclick="showView('resources')">Ressources &amp; artefacts</button>
+    <button data-view="settings" onclick="showView('settings')">Réglages</button>
+  </nav>
+  <div class="bellwrap">
+    <button class="bellbtn" onclick="toggleNotifs(event)" title="Notifications">🔔<span class="bdg" id="bell-badge"></span></button>
+  </div>
+</header>
+
+<!-- panneau notifications (cloche) -->
+<div id="notif-panel">
+  <div class="np-head">
+    <h3>🔔 Notifications &amp; sollicitations</h3>
+    <select id="n-filter" onchange="loadNotifs()">
+      <option value="open">À traiter</option>
+      <option value="">Toutes</option>
+      <option value="answered">Répondues</option>
+      <option value="dismissed">Ignorées</option>
+    </select>
+  </div>
+  <div id="notifs-list"></div>
+</div>
+
+<!-- ============ TABLEAU DE BORD ============ -->
+<div id="view-dash" class="view active">
+  <div class="page">
+    <h2>Tableau de bord</h2>
+    <div class="sub">Vue d'ensemble de l'essaim : indicateurs, état des agents et consommation de tokens.</div>
+    <div class="kpis" id="dash-kpis"></div>
+    <div class="section-h">État des agents</div>
+    <div class="agent-strip" id="dash-agents"></div>
+    <div class="dash-grid">
+      <div class="panel"><h3>Tokens par agent</h3><div id="dash-tok-agent"></div></div>
+      <div class="panel"><h3>Tokens par provider</h3><div id="dash-tok-provider"></div></div>
+      <div class="panel"><h3>Tokens par mission</h3><div id="dash-tok-project"></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SUPERVISION ============ -->
+<div id="view-super" class="view">
+  <div id="agents-col">
+    <button class="full" onclick="openAgentDlg(null)">+ Nouvel agent</button>
+    <h2 style="margin-top:14px">Agents</h2>
+    <div id="agent-list"></div>
+  </div>
+  <div id="detail"><div class="placeholder">Sélectionne un agent pour le superviser.</div></div>
+</div>
+
+<!-- ============ MISSIONS ============ -->
+<div id="view-missions" class="view">
+  <div class="page">
+    <h2>Missions</h2>
+    <div class="sub">Décris une mission : l'agent superviseur propose un plan en tâches (parallèles / séquentielles) confiées aux agents. Valide-le pour le lancer.</div>
+    <details class="tile" open>
+      <summary><b>＋ Nouvelle mission</b></summary>
+      <div class="tile-body">
+        <label>Décris la mission à accomplir</label>
+        <textarea id="m-mission" rows="3" placeholder="Ex. Produire une veille concurrentielle sur 3 acteurs, en synthétiser les offres, et préparer une note de recommandation."></textarea>
+        <div style="margin-top:10px"><button id="m-plan-btn" onclick="proposePlan()">Proposer un plan</button>
+          <span id="m-msg" style="margin-left:12px;color:var(--muted)"></span></div>
+      </div>
+    </details>
+    <div class="toolbar">
+      <input type="search" id="m-search" placeholder="Rechercher une mission…" oninput="renderProjects()">
+      <select id="m-status" onchange="renderProjects()">
+        <option value="">Tous les statuts</option>
+        <option value="proposed">Proposées</option>
+        <option value="running">En cours</option>
+        <option value="needs_attention">À surveiller</option>
+        <option value="completed">Terminées</option>
+        <option value="archived">Archivées</option>
+      </select>
+      <label style="margin:0;display:flex;align-items:center;font-weight:400"><input type="checkbox" id="m-archived" onchange="loadProjects()" style="width:auto;margin-right:6px">Inclure les archivées</label>
+    </div>
+    <div id="projects-list"></div>
+  </div>
+</div>
+
+<!-- ============ RESSOURCES & ARTEFACTS ============ -->
+<div id="view-resources" class="view">
+  <div class="page">
+    <h2>Ressources &amp; artefacts</h2>
+    <div class="sub">Ressources mutualisées / liées à un agent / liées à une tâche, et artefacts produits par les agents — filtrables par agent et par mission.</div>
+    <div class="grid duo">
+      <div>
+        <div class="section-h">Ressources gérées</div>
+        <div class="toolbar">
+          <select id="r-scope" onchange="loadResources()">
+            <option value="">Tous les scopes</option>
+            <option value="shared">Mutualisées</option>
+            <option value="agent">Liées à un agent</option>
+            <option value="task">Liées à une tâche</option>
+          </select>
+          <select id="r-agent" onchange="loadResources()"><option value="">Tous les agents</option></select>
+          <select id="r-project" onchange="loadResources()"><option value="">Toutes les missions</option></select>
+          <button class="small" onclick="dlgResource.showModal()">+ Ajouter</button>
+        </div>
+        <div class="toolbar">
+          <input type="search" id="r-search" placeholder="Rechercher…" oninput="renderResources()">
+          <select id="r-sort" onchange="renderResources()">
+            <option value="date">Tri : récent</option>
+            <option value="name">Tri : nom</option>
+            <option value="size">Tri : taille</option>
+          </select>
+        </div>
+        <div class="card-list" id="resources-list"></div>
+      </div>
+      <div>
+        <div class="section-h">Artefacts (fichiers produits par les agents)</div>
+        <div class="toolbar">
+          <select id="a-agent" onchange="loadArtifacts()"><option value="">— Choisir un agent —</option></select>
+          <select id="a-dir" onchange="renderArtifacts()">
+            <option value="">Tous les dossiers</option>
+            <option value="deliverables">deliverables/</option>
+            <option value="library">library/</option>
+            <option value="memory">memory/</option>
+          </select>
+        </div>
+        <div class="toolbar">
+          <input type="search" id="a-search" placeholder="Rechercher…" oninput="renderArtifacts()">
+          <select id="a-sort" onchange="renderArtifacts()">
+            <option value="date">Tri : récent</option>
+            <option value="name">Tri : chemin</option>
+            <option value="size">Tri : taille</option>
+          </select>
+        </div>
+        <div class="card-list" id="artifacts-list"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ RÉGLAGES ============ -->
+<div id="view-settings" class="view">
+  <div class="page">
+    <h2>Providers LLM</h2>
+    <div class="sub">Déclare un ou plusieurs fournisseurs (Anthropic ou compatible, OpenAI ou compatible). Chaque agent peut être rattaché à un provider ; sinon il utilise le provider par défaut.</div>
+    <div class="toolbar"><button onclick="openProviderDlg(null)">+ Ajouter un provider</button></div>
+    <div id="providers-list"></div>
+  </div>
+</div>
+
+<!-- ===== Modales ===== -->
+<dialog id="dlgAgent">
+  <h3 id="dlgAgent-title">Créer un agent</h3>
+  <label>Nom (unique)</label><input id="f-name" placeholder="ex. veilleur-techno">
+  <label>Description courte (visible des autres agents)</label><input id="f-desc" placeholder="ex. Veille technologique IA quotidienne">
+  <label>Mission (prompt générique)</label>
+  <textarea id="f-mission" rows="6" placeholder="Mission permanente, périmètre, livrables attendus…"></textarea>
+  <label>Provider LLM</label>
+  <select id="f-provider"></select>
+  <label>Modèle</label>
+  <input id="f-model" list="model-suggestions" placeholder="claude-opus-4-8 / gpt-5.2 / glm-4.7 / …">
+  <datalist id="model-suggestions">
+    <option value="claude-opus-4-8"></option>
+    <option value="claude-sonnet-4-6"></option>
+    <option value="claude-haiku-4-5"></option>
+  </datalist>
+  <label>Effort</label>
+  <select id="f-effort"><option>low</option><option>medium</option><option selected>high</option><option>max</option></select>
+  <label>Itérations max par session</label><input id="f-iter" type="number" value="60" min="5" max="500">
+  <label>Budget de tokens par session (0 = illimité)</label><input id="f-budget" type="number" value="0" min="0" step="10000">
+  <div class="dialog-actions"><button class="secondary" onclick="dlgAgent.close()">Annuler</button><button id="dlgAgent-save" onclick="saveAgent()">Créer</button></div>
+</dialog>
+
+<dialog id="dlgProvider">
+  <h3 id="dlgProvider-title">Ajouter un provider</h3>
+  <label>Nom (unique)</label><input id="p-name" placeholder="ex. Anthropic, z.ai, OpenAI…">
+  <label>Type</label>
+  <select id="p-type" onchange="provTypeChange()">
+    <option value="anthropic">Anthropic ou compatible (Messages API)</option>
+    <option value="openai">OpenAI ou compatible (Chat Completions)</option>
+  </select>
+  <label>URL de base <span id="p-base-hint" style="font-weight:400">(vide = API Anthropic officielle)</span></label>
+  <input id="p-base" placeholder="https://api.z.ai/api/anthropic">
+  <label>Clé API</label>
+  <input id="p-key" type="password" placeholder="sk-…">
+  <div class="hint" id="p-key-hint">Pour le type Anthropic : vide = variable d'environnement ANTHROPIC_API_KEY.</div>
+  <label>Modèle par défaut (suggéré aux agents)</label>
+  <input id="p-model" placeholder="claude-opus-4-8 / gpt-5.2 / …">
+  <div class="row-inline" id="p-native-wrap">
+    <input type="checkbox" id="p-native" checked>
+    <label for="p-native">Fonctionnalités natives Anthropic (thinking adaptatif, effort, compaction, cache)</label>
+  </div>
+  <div class="row-inline">
+    <input type="checkbox" id="p-default">
+    <label for="p-default">Provider par défaut de la plateforme</label>
+  </div>
+  <div class="dialog-actions"><button class="secondary" onclick="dlgProvider.close()">Annuler</button><button onclick="saveProvider()">Enregistrer</button></div>
+</dialog>
+
+<dialog id="dlgRunNow">
+  <h3>Lancer la session maintenant</h3>
+  <div class="hint" style="margin-bottom:6px">La session démarrera au prochain cycle du planificateur (quelques secondes), si l'agent est libre.</div>
+  <label>Commentaire pour l'agent (optionnel)</label>
+  <textarea id="rn-comment" rows="4" placeholder="Contexte, précision, réorientation… Ce texte sera injecté au début de la session."></textarea>
+  <div class="dialog-actions"><button class="secondary" onclick="dlgRunNow.close()">Annuler</button><button onclick="runNow()">▶ Lancer</button></div>
+</dialog>
+
+<dialog id="dlgTask">
+  <h3>Confier une tâche</h3>
+  <label>Description</label><textarea id="f-task" rows="5" placeholder="Décris la tâche de façon complète et autonome…"></textarea>
+  <div class="dialog-actions"><button class="secondary" onclick="dlgTask.close()">Annuler</button><button onclick="createTask()">Confier</button></div>
+</dialog>
+
+<dialog id="dlgSession">
+  <h3>Planifier une session</h3>
+  <label>Objectif</label><textarea id="f-objective" rows="4"></textarea>
+  <label>Démarrage (vide = dès que possible)</label><input id="f-when" type="datetime-local">
+  <div class="dialog-actions"><button class="secondary" onclick="dlgSession.close()">Annuler</button><button onclick="createSession()">Planifier</button></div>
+</dialog>
+
+<dialog id="dlgResource">
+  <h3>Ajouter une ressource</h3>
+  <label>Type</label>
+  <select id="rf-type" onchange="resTypeChange()">
+    <option value="file">Fichier (upload)</option>
+    <option value="link">Lien (URL)</option>
+    <option value="note">Note (texte)</option>
+  </select>
+  <label>Scope</label>
+  <select id="rf-scope" onchange="resScopeChange()">
+    <option value="shared">Mutualisée (tous les agents)</option>
+    <option value="agent">Liée à un agent</option>
+    <option value="task">Liée à une tâche</option>
+  </select>
+  <div id="rf-agent-wrap" style="display:none"><label>Agent</label><select id="rf-agent"></select></div>
+  <div id="rf-task-wrap" style="display:none"><label>ID de tâche</label><input id="rf-task" type="number"></div>
+  <div id="rf-file-wrap"><label>Fichier</label><input id="rf-file" type="file"></div>
+  <div id="rf-name-wrap" style="display:none"><label>Nom</label><input id="rf-name"></div>
+  <div id="rf-content-wrap" style="display:none"><label id="rf-content-label">Contenu</label><textarea id="rf-content" rows="4"></textarea></div>
+  <label>Description (optionnelle)</label><input id="rf-desc">
+  <div class="dialog-actions"><button class="secondary" onclick="dlgResource.close()">Annuler</button><button onclick="createResource()">Ajouter</button></div>
+</dialog>
+
+<dialog id="dlgPreview">
+  <h3 id="pv-title">Aperçu</h3>
+  <div class="body" id="pv-body"></div>
+  <div class="dialog-actions">
+    <a id="pv-dl" style="display:none" download><button class="small secondary">⬇ Télécharger / exporter</button></a>
+    <button class="secondary" onclick="dlgPreview.close()">Fermer</button>
+  </div>
+</dialog>
+
+<script>
+const $ = s => document.querySelector(s);
+let agents = [], projects = [], providersList = [], resources = [], artifacts = [];
+let selectedAgent = null, selectedSession = null, lastEventId = 0;
+let curView = 'dash', editingAgentId = null, editingProviderId = null, overview = {};
+// État d'ouverture des tuiles rétractables (préservé lors des rafraîchissements périodiques)
+const openTasks = new Set(), projState = new Map();
+function trackOpen(set, el, id){ if(el.open) set.add(id); else set.delete(id); }
+
+const api = async (url, opts) => {
+  const r = await fetch(url, opts ? {headers:{'Content-Type':'application/json'}, ...opts} : undefined);
+  if (!r.ok) { const e = await r.json().catch(()=>({detail:r.statusText})); throw new Error(e.detail||r.statusText); }
+  return r.status===204 ? null : r.json();
+};
+const esc = t => (t??'').toString().replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmtTs = t => t ? new Date(t.endsWith&&(t.endsWith('Z')||t.includes('+')) ? t : t+'Z').toLocaleString('fr-FR') : '—';
+const fmtTok = n => n>1e6 ? (n/1e6).toFixed(1)+'M' : n>1e3 ? (n/1e3).toFixed(1)+'k' : (n||0);
+const fmtSize = n => n>1e6 ? (n/1e6).toFixed(1)+' Mo' : n>1e3 ? (n/1e3).toFixed(1)+' Ko' : (n||0)+' o';
+const isImg = n => /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(n);
+
+const STATE_LABEL = {running:'▶ en cours', paused:'⏸ en pause', awaiting:'❓ attend une réponse',
+                     scheduled:'⏱ session planifiée', idle:'inactif'};
+
+function showView(v){
+  curView = v;
+  document.querySelectorAll('.view').forEach(e=>e.classList.toggle('active', e.id==='view-'+v));
+  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active', b.dataset.view===v));
+  if (v==='dash') loadDash();
+  if (v==='missions') loadProjects();
+  if (v==='resources'){ populateSelects(); loadResources(); loadArtifacts(); }
+  if (v==='settings') loadProviders();
+}
+
+/* ---------- rafraîchissement global ---------- */
+async function refresh() {
+  try {
+    const [ov, ags] = await Promise.all([api('/api/overview'), api('/api/agents')]);
+    overview = ov; agents = ags;
+    const badge = $('#bell-badge');
+    if (ov.notifications_open>0){ badge.style.display='block'; badge.textContent=ov.notifications_open; }
+    else badge.style.display='none';
+    renderAgentList();
+    if (curView==='dash') loadDash();
+    if (selectedAgent) {
+      const fresh = agents.find(a => a.id === selectedAgent.id);
+      if (fresh) { selectedAgent = fresh; renderDetailHead(); await refreshLists(); }
+    }
+    if ($('#notif-panel').classList.contains('open')) loadNotifs();
+    if (curView==='missions') loadProjects();
+  } catch(e) { console.error(e); }
+}
+
+/* ---------- tableau de bord ---------- */
+let dashLoading = false;
+async function loadDash(){
+  if (dashLoading) return; dashLoading = true;
+  try {
+    const ov = overview.agents!==undefined ? overview : await api('/api/overview');
+    const stats = await api('/api/stats/tokens');
+    $('#dash-kpis').innerHTML = `
+      <div class="kpi"><div class="kv">${agents.length||ov.agents}</div><div class="kl">agents</div></div>
+      <div class="kpi ${ov.sessions_running?'ok':''}"><div class="kv">${ov.sessions_running}</div><div class="kl">sessions actives</div></div>
+      <div class="kpi"><div class="kv">${ov.sessions_planned}</div><div class="kl">sessions planifiées</div></div>
+      <div class="kpi ${ov.tasks_pending?'warn':''}"><div class="kv">${ov.tasks_pending}</div><div class="kl">tâches en attente</div></div>
+      <div class="kpi click" onclick="showView('missions')"><div class="kv">${ov.projects_active||0}</div><div class="kl">missions actives</div></div>
+      <div class="kpi click ${ov.notifications_open?'alert':''}" onclick="toggleNotifs(event)"><div class="kv">${ov.notifications_open}</div><div class="kl">notifications à traiter</div></div>
+      <div class="kpi"><div class="kv">${fmtTok(stats.total.input_tokens)} / ${fmtTok(stats.total.output_tokens)}</div><div class="kl">tokens in / out</div></div>`;
+    $('#dash-agents').innerHTML = agents.map(a=>`
+      <div class="astate" onclick="gotoAgent(${a.id})" title="${esc(STATE_LABEL[a.state]||a.state)}">
+        <span class="dot ${a.state}"></span><b>${esc(a.name)}</b>
+        <span class="state-pill ${a.state}">${STATE_LABEL[a.state]||a.state}</span>
+      </div>`).join('') || '<div class="empty">Aucun agent.</div>';
+    const tokTable = (rows, label, cols) => rows.length ? `
+      <table class="stats-t"><tr><th>${label}</th><th class="num">in</th><th class="num">out</th>${cols?'<th class="num">sessions</th>':''}</tr>
+      ${rows.map(r=>`<tr><td>${esc(r._label)}</td><td class="num">${fmtTok(r.input_tokens)}</td>
+        <td class="num">${fmtTok(r.output_tokens)}</td>${cols?`<td class="num">${r.sessions}</td>`:''}</tr>`).join('')}</table>`
+      : '<div class="empty">Aucune donnée.</div>';
+    $('#dash-tok-agent').innerHTML = tokTable(stats.by_agent.map(r=>({...r,_label:r.name})), 'Agent', true);
+    $('#dash-tok-provider').innerHTML = tokTable(stats.by_provider.map(r=>({...r,_label:r.provider})), 'Provider', true);
+    $('#dash-tok-project').innerHTML = tokTable(
+      stats.by_project.filter(r=>r.input_tokens||r.output_tokens).map(r=>({...r,_label:`#${r.id} ${r.title}`})), 'Mission', false);
+  } catch(e){ console.error(e); }
+  finally { dashLoading = false; }
+}
+function gotoAgent(id){ showView('super'); selectAgent(id); }
+
+/* ---------- supervision ---------- */
+function renderAgentList() {
+  $('#agent-list').innerHTML = agents.map(a => `
+    <div class="agent-card ${selectedAgent?.id===a.id?'selected':''}" onclick="selectAgent(${a.id})">
+      <div class="row1"><span class="dot ${a.state}"></span><span class="name">${esc(a.name)}</span>
+        ${a.awaiting ? `<span class="badge" style="background:#efe7fb;color:var(--purple)">❓ ${a.awaiting}</span>`
+          : a.pending_tasks ? `<span class="badge tasks">${a.pending_tasks} tâche(s)</span>` : ''}</div>
+      <div class="desc">${esc(a.description)}</div>
+      <div class="meta">${a.state==='awaiting' ? STATE_LABEL.awaiting
+        : a.current_session ? '▶ session n°'+a.current_session.number+' en cours'
+        : a.next_session ? '⏱ prochaine : '+fmtTs(a.next_session.scheduled_at)
+        : STATE_LABEL[a.state]||a.state}</div>
+    </div>`).join('') || '<div style="color:var(--muted)">Aucun agent. Crée le premier !</div>';
+}
+
+async function selectAgent(id) {
+  selectedAgent = agents.find(a => a.id === id);
+  if (!selectedAgent) return;
+  selectedSession = null; lastEventId = 0;
+  $('#detail').innerHTML = `
+    <div class="detail-head" id="d-head"></div>
+    <div class="mission" id="d-mission"></div>
+    <div class="actions">
+      <button class="small" onclick="dlgTask.showModal()">+ Tâche</button>
+      <button class="small" onclick="dlgSession.showModal()">+ Session</button>
+      <button class="small secondary" onclick="openAgentDlg(selectedAgent)">✎ Modifier</button>
+      <button class="small secondary" id="d-pause"></button>
+      <button class="small danger" onclick="deleteAgent()">🗑 Supprimer</button>
+    </div>
+    <div class="cols">
+      <div>
+        <details class="panel" open><summary>Sessions</summary><div id="d-sessions"></div></details>
+        <details class="panel" open style="margin-top:14px"><summary>Tâches</summary><div id="d-tasks"></div></details>
+        <details class="panel" style="margin-top:14px"><summary>Services</summary><div id="d-services"></div></details>
+      </div>
+      <div class="panel">
+        <h3 id="ev-title">Flux de la session</h3>
+        <div id="events"><div class="ev" style="color:var(--muted)">Sélectionne une session.</div></div>
+        <div class="report" id="d-report" style="display:none"></div>
+      </div>
+    </div>`;
+  renderDetailHead(); await refreshLists(); renderAgentList();
+}
+
+function renderDetailHead() {
+  const a = selectedAgent;
+  $('#d-head').innerHTML = `<h2>${esc(a.name)}</h2><span class="state-pill ${a.state}">${STATE_LABEL[a.state]||a.state}</span>
+    <span style="color:var(--muted);font-size:12px">${esc(a.model)} · effort ${esc(a.effort)}`
+    + (a.provider_name ? ` · provider ${esc(a.provider_name)}${a.provider_id?'':' (défaut)'}` : '')
+    + (a.session_token_budget ? ` · budget ${fmtTok(a.session_token_budget)} tok/session` : '')
+    + ` · ${fmtTok(a.tokens_in)}/${fmtTok(a.tokens_out)} tok consommés</span>`;
+  $('#d-mission').textContent = a.mission_prompt;
+  const btn = $('#d-pause');
+  if (a.status === 'paused') { btn.textContent='Reprendre'; btn.onclick=()=>act(`/api/agents/${a.id}/resume`); }
+  else { btn.textContent='Mettre en pause'; btn.onclick=()=>act(`/api/agents/${a.id}/pause`); }
+}
+
+async function refreshLists() {
+  if (!selectedAgent) return;
+  const [sessions, tasks, services] = await Promise.all([
+    api(`/api/agents/${selectedAgent.id}/sessions`), api(`/api/agents/${selectedAgent.id}/tasks`),
+    api(`/api/agents/${selectedAgent.id}/services`)]);
+  $('#d-sessions').innerHTML = sessions.map(s => `
+    <div class="session-item ${selectedSession?.id===s.id?'selected':''}" onclick="selectSession(${s.id})">
+      <div><span class="st ${s.status}">n°${s.number} · ${s.status}</span>
+        ${s.status==='running' ? `<button class="small danger" style="float:right" onclick="event.stopPropagation();act('/api/sessions/${s.id}/interrupt')">Stop</button>`:''}
+        ${s.status==='planned' ? `<button class="small" style="float:right" onclick="event.stopPropagation();openRunNow(${s.id})">▶ Lancer</button>`:''}</div>
+      <div class="obj">${esc(s.objective)}</div>
+      <div class="sub">${s.status==='planned' ? '⏱ '+fmtTs(s.scheduled_at) : fmtTs(s.started_at)}
+        ${s.input_tokens ? ' · '+fmtTok(s.input_tokens)+'/'+fmtTok(s.output_tokens)+' tok' : ''}${s.provider?' · '+esc(s.provider):''}${s.user_note?' · 📝 note':''}</div>
+    </div>`).join('') || '<div class="session-item" style="cursor:default;color:var(--muted)">Aucune session.</div>';
+  $('#d-tasks').innerHTML = tasks.map(t => `
+    <details class="titem" ${openTasks.has(t.id)?'open':''} ontoggle="trackOpen(openTasks,this,${t.id})">
+      <summary><span class="st ${t.status}">#${t.id} · ${t.status}</span>
+        <span class="tsum">${esc(t.title||t.description)}</span>
+        ${(t.input_tokens||t.output_tokens)?`<span class="sub" style="white-space:nowrap">${fmtTok(t.input_tokens)}/${fmtTok(t.output_tokens)} tok</span>`:''}</summary>
+      <div class="tbody">${esc(t.description)}
+        <div class="sub" style="margin-top:6px">de ${esc(t.origin)}${t.project_id?` · mission #${t.project_id}`:''} · créée ${fmtTs(t.created_at)}${t.completed_at?` · close ${fmtTs(t.completed_at)}`:''}</div>
+        ${t.result?`<div class="sub" style="margin-top:4px">↳ ${esc(t.result.slice(0,600))}</div>`:''}</div>
+    </details>`).join('') || '<div class="task-item" style="cursor:default;color:var(--muted)">Aucune tâche.</div>';
+  $('#d-services').innerHTML = services.map(s => `
+    <div class="task-item" style="cursor:default">
+      <div><span class="st ${s.status==='running'?'done':'failed'}">${esc(s.name)}</span>
+        ${s.port?`<span class="sub"> · port ${s.port}</span>`:''}<span class="sub"> · ${s.status}</span></div>
+      ${s.command?`<div style="font-family:Consolas,monospace;font-size:11.5px;color:var(--muted)">${esc(s.command)}</div>`:''}
+    </div>`).join('') || '<div class="task-item" style="cursor:default;color:var(--muted)">Aucun service déclaré.</div>';
+  if (selectedSession) await pollEvents();
+}
+
+async function selectSession(id) {
+  selectedSession = {id}; lastEventId = 0;
+  $('#events').innerHTML = ''; $('#d-report').style.display='none';
+  await pollEvents(); await refreshLists();
+}
+
+async function pollEvents() {
+  if (!selectedSession) return;
+  const [session, events] = await Promise.all([
+    api(`/api/sessions/${selectedSession.id}`), api(`/api/sessions/${selectedSession.id}/events?after=${lastEventId}`)]);
+  $('#ev-title').textContent = `Flux — session n°${session.number} (${session.status})`;
+  const box = $('#events');
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+  for (const ev of events) {
+    lastEventId = Math.max(lastEventId, ev.id);
+    let content = ev.content;
+    if (ev.type==='tool_use'){ try{const c=JSON.parse(content);content=`🔧 ${c.name}  ${JSON.stringify(c.input).slice(0,600)}`;}catch{} }
+    else if (ev.type==='tool_result'){ try{const c=JSON.parse(content);content=`${c.is_error?'❌':'✓'} ${c.name} → ${(c.output||'').slice(0,600)}`;}catch{} }
+    const div = document.createElement('div');
+    div.className = `ev ${ev.type}`;
+    div.innerHTML = `<span class="ts">${(fmtTs(ev.ts).split(' ')[1])||''}</span>` + esc(content);
+    box.appendChild(div);
+  }
+  if (events.length && atBottom) box.scrollTop = box.scrollHeight;
+  if (session.report && session.status !== 'running') {
+    const r = $('#d-report'); r.style.display='block';
+    r.textContent = '📋 Rapport :\n'+session.report + (session.next_objective ? '\n\n➡ Prochaine : '+session.next_objective : '');
+  }
+}
+
+async function act(url) { try { await api(url, {method:'POST', body:'{}'}); await refresh(); } catch(e){ alert(e.message); } }
+
+let runNowSessionId = null;
+function openRunNow(id){ runNowSessionId = id; $('#rn-comment').value=''; dlgRunNow.showModal(); }
+async function runNow(){
+  try{
+    const r = await api(`/api/sessions/${runNowSessionId}/run-now`,
+      {method:'POST', body: JSON.stringify({comment: $('#rn-comment').value.trim()})});
+    dlgRunNow.close();
+    if (r.warnings && r.warnings.length) alert(r.warnings.join('\n'));
+    await refresh();
+  }catch(e){ alert(e.message); }
+}
+
+async function deleteAgent(){
+  const a = selectedAgent; if (!a) return;
+  if (!confirm(`Supprimer définitivement l'agent « ${a.name} » ?\n\n`+
+    `• Son historique (sessions, messages, mémoire, notifications) sera effacé.\n`+
+    `• Ses tâches de mission non terminées seront annulées (et l'aval annulé en cascade).\n`+
+    `• Ses fichiers (workdir : livrables, bibliothèque) restent sur le disque.\n\n`+
+    `Astuce : pour le désactiver sans le supprimer, utilise « Mettre en pause ».`)) return;
+  try{
+    await api(`/api/agents/${a.id}`, {method:'DELETE'});
+    selectedAgent = null;
+    $('#detail').innerHTML = '<div class="placeholder">Sélectionne un agent pour le superviser.</div>';
+    await refresh();
+  }catch(e){ alert(e.message); }
+}
+
+/* ---------- création / édition d'agent ---------- */
+async function openAgentDlg(agent){
+  editingAgentId = agent ? agent.id : null;
+  await loadProviders(true);
+  $('#f-provider').innerHTML = '<option value="">— Provider par défaut —</option>' +
+    providersList.map(p=>`<option value="${p.id}">${esc(p.name)} (${p.ptype})${p.is_default?' · défaut':''}</option>`).join('');
+  $('#dlgAgent-title').textContent = agent ? `Modifier l'agent ${agent.name}` : 'Créer un agent';
+  $('#dlgAgent-save').textContent = agent ? 'Enregistrer' : 'Créer';
+  $('#f-name').value = agent?.name || ''; $('#f-name').disabled = !!agent;
+  $('#f-desc').value = agent?.description || '';
+  $('#f-mission').value = agent?.mission_prompt || '';
+  $('#f-provider').value = agent?.provider_id || '';
+  $('#f-model').value = agent?.model || 'claude-opus-4-8';
+  $('#f-effort').value = agent?.effort || 'high';
+  $('#f-iter').value = agent?.max_iterations || 60;
+  $('#f-budget').value = agent?.session_token_budget || 0;
+  dlgAgent.showModal();
+}
+async function saveAgent() {
+  const provider_id = $('#f-provider').value ? +$('#f-provider').value : null;
+  const body = {
+    description:$('#f-desc').value.trim(), mission_prompt:$('#f-mission').value.trim(),
+    model:$('#f-model').value.trim(), effort:$('#f-effort').value,
+    max_iterations:+$('#f-iter').value||60, session_token_budget:+$('#f-budget').value||0};
+  try {
+    if (editingAgentId){
+      if (provider_id) body.provider_id = provider_id; else body.clear_provider = true;
+      await api(`/api/agents/${editingAgentId}`, {method:'PATCH', body: JSON.stringify(body)});
+    } else {
+      body.name = $('#f-name').value.trim(); body.provider_id = provider_id;
+      await api('/api/agents', {method:'POST', body: JSON.stringify(body)});
+    }
+    dlgAgent.close(); await refresh();
+  } catch(e){ alert(e.message); }
+}
+async function createTask() {
+  try { await api(`/api/agents/${selectedAgent.id}/tasks`, {method:'POST', body:JSON.stringify({description:$('#f-task').value.trim()})});
+    $('#f-task').value=''; dlgTask.close(); await refresh(); } catch(e){ alert(e.message); }
+}
+async function createSession() {
+  try { const when=$('#f-when').value;
+    await api(`/api/agents/${selectedAgent.id}/sessions`, {method:'POST',
+      body:JSON.stringify({objective:$('#f-objective').value.trim(), scheduled_at: when?new Date(when).toISOString():null})});
+    $('#f-objective').value=''; dlgSession.close(); await refresh(); } catch(e){ alert(e.message); }
+}
+
+/* ---------- ressources ---------- */
+async function populateSelects(){
+  const opts = agents.map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('');
+  const keep = (sel, html, first) => { const v=sel.value; sel.innerHTML=first+html; sel.value=v; };
+  keep($('#a-agent'), opts, '<option value="">— Choisir un agent —</option>');
+  keep($('#r-agent'), opts, '<option value="">Tous les agents</option>');
+  $('#rf-agent').innerHTML = opts;
+  try {
+    const projs = await api('/api/projects?include_archived=true');
+    keep($('#r-project'), projs.map(p=>`<option value="${p.id}">#${p.id} ${esc(p.title)}</option>`).join(''),
+         '<option value="">Toutes les missions</option>');
+  } catch(e){ console.error(e); }
+}
+function resTypeChange(){
+  const t=$('#rf-type').value;
+  $('#rf-file-wrap').style.display = t==='file'?'':'none';
+  $('#rf-name-wrap').style.display = t==='file'?'none':'';
+  $('#rf-content-wrap').style.display = t==='file'?'none':'';
+  $('#rf-content-label').textContent = t==='link'?'URL':'Contenu de la note';
+}
+function resScopeChange(){
+  const s=$('#rf-scope').value;
+  $('#rf-agent-wrap').style.display = s==='agent'?'':'none';
+  $('#rf-task-wrap').style.display = s==='task'?'':'none';
+}
+async function createResource(){
+  try{
+    const type=$('#rf-type').value, scope=$('#rf-scope').value;
+    const agent_id = scope==='agent' ? +$('#rf-agent').value : null;
+    const task_id = scope==='task' ? +$('#rf-task').value : null;
+    if (type==='file'){
+      const f=$('#rf-file').files[0]; if(!f){alert('Choisis un fichier');return;}
+      const fd=new FormData(); fd.append('file',f); fd.append('scope',scope); fd.append('description',$('#rf-desc').value);
+      if(agent_id) fd.append('agent_id',agent_id); if(task_id) fd.append('task_id',task_id);
+      const r=await fetch('/api/resources/upload',{method:'POST',body:fd}); if(!r.ok)throw new Error((await r.json()).detail);
+    } else {
+      await api('/api/resources/link',{method:'POST',body:JSON.stringify({
+        scope, name:$('#rf-name').value.trim(), content:$('#rf-content').value, kind:type,
+        description:$('#rf-desc').value, agent_id, task_id})});
+    }
+    dlgResource.close(); $('#rf-name').value=$('#rf-content').value=$('#rf-desc').value='';
+    loadResources();
+  }catch(e){ alert(e.message); }
+}
+async function loadResources(){
+  const params = new URLSearchParams();
+  if ($('#r-scope').value) params.set('scope', $('#r-scope').value);
+  if ($('#r-agent').value) params.set('agent_id', $('#r-agent').value);
+  if ($('#r-project').value) params.set('project_id', $('#r-project').value);
+  const qs = params.toString();
+  resources = await api('/api/resources'+(qs?`?${qs}`:''));
+  renderResources();
+}
+function renderResources(){
+  const q=$('#r-search').value.toLowerCase(), sort=$('#r-sort').value;
+  let list = resources.filter(r => (r.name+' '+r.description).toLowerCase().includes(q));
+  list.sort((a,b)=> sort==='name'?a.name.localeCompare(b.name): sort==='size'?b.size-a.size: b.id-a.id);
+  const ico = k => k==='file'?'📄':k==='link'?'🔗':'📝';
+  $('#resources-list').innerHTML = list.map(r=>`
+    <div class="res-row" onclick='previewResource(${r.id})'>
+      <span class="ico">${ico(r.kind)}</span>
+      <div class="grow"><div class="rname">${esc(r.name)}</div>
+        <div class="rsub">${esc(r.description||'')}${r.size?' · '+fmtSize(r.size):''} · par ${esc(r.created_by)}</div></div>
+      <span class="chip ${r.scope}">${r.scope==='shared'?'mutualisée':r.scope==='agent'?'agent':'tâche '+(r.task_id||'')}</span>
+      <button class="small danger" onclick='event.stopPropagation();delResource(${r.id})'>×</button>
+    </div>`).join('') || '<div class="empty">Aucune ressource.</div>';
+}
+async function delResource(id){ if(!confirm('Supprimer cette ressource ?'))return;
+  try{ await api(`/api/resources/${id}`,{method:'DELETE'}); loadResources(); }catch(e){alert(e.message);} }
+
+async function previewResource(id){
+  const r = resources.find(x=>x.id===id);
+  const url = `/api/resources/${id}/content`;
+  if (r.kind==='link'){ showPreview(r.name, `<div style="padding:14px"><a href="${esc(r.content)}" target="_blank">${esc(r.content)}</a></div>`, null); return; }
+  if (r.kind==='file' && isImg(r.name)){ showPreview(r.name, `<img src="${url}">`, url+'?download=true'); return; }
+  try{ const txt = await (await fetch(url)).text(); showPreview(r.name, `<pre>${esc(txt)}</pre>`, url+'?download=true'); }
+  catch(e){ showPreview(r.name, `<div class="empty">${esc(e.message)}</div>`, url); }
+}
+
+/* ---------- artefacts ---------- */
+async function loadArtifacts(){
+  const id=$('#a-agent').value;
+  if(!id){ artifacts=[]; renderArtifacts(); return; }
+  artifacts = await api(`/api/agents/${id}/artifacts`);
+  renderArtifacts();
+}
+function renderArtifacts(){
+  const q=$('#a-search').value.toLowerCase(), sort=$('#a-sort').value, id=$('#a-agent').value, dir=$('#a-dir').value;
+  let list = artifacts.filter(f=>f.path.toLowerCase().includes(q) && (!dir || f.dir===dir));
+  list.sort((a,b)=> sort==='name'?a.path.localeCompare(b.path): sort==='size'?b.size-a.size: b.mtime-a.mtime);
+  $('#artifacts-list').innerHTML = !id ? '<div class="empty">Choisis un agent.</div>' : (list.map(f=>`
+    <div class="res-row" onclick='previewArtifact(${id},${JSON.stringify(f.path)})'>
+      <span class="ico">${isImg(f.path)?'🖼':'📄'}</span>
+      <div class="grow"><div class="rname">${esc(f.path)}</div>
+        <div class="rsub">${fmtSize(f.size)} · ${fmtTs(new Date(f.mtime*1000).toISOString())}</div></div>
+      <span class="chip">${esc(f.dir)}</span>
+    </div>`).join('') || '<div class="empty">Aucun artefact.</div>');
+}
+async function previewArtifact(id, path){
+  const url = `/api/agents/${id}/artifact?path=${encodeURIComponent(path)}`;
+  if (isImg(path)){ showPreview(path, `<img src="${url}">`, url+'&download=true'); return; }
+  try{ const txt = await (await fetch(url)).text(); showPreview(path, `<pre>${esc(txt)}</pre>`, url+'&download=true'); }
+  catch(e){ showPreview(path, `<div class="empty">${esc(e.message)}</div>`, url+'&download=true'); }
+}
+function showPreview(title, bodyHtml, dlUrl){
+  $('#pv-title').textContent = '👁 '+title;
+  $('#pv-body').innerHTML = bodyHtml;
+  const dl = $('#pv-dl');
+  if (dlUrl){ dl.style.display=''; dl.href=dlUrl; } else dl.style.display='none';
+  dlgPreview.showModal();
+}
+
+/* ---------- notifications (cloche) ---------- */
+function toggleNotifs(e){
+  e.stopPropagation();
+  const p = $('#notif-panel');
+  p.classList.toggle('open');
+  if (p.classList.contains('open')) loadNotifs();
+}
+document.addEventListener('click', e=>{
+  const p = $('#notif-panel');
+  if (p.classList.contains('open') && !p.contains(e.target)) p.classList.remove('open');
+});
+async function loadNotifs(){
+  // Ne pas écraser une réponse en cours de saisie lors d'un rafraîchissement périodique.
+  if (document.activeElement && $('#notifs-list').contains(document.activeElement)) return;
+  const f=$('#n-filter').value;
+  const list = await api('/api/notifications'+(f?`?status=${f}`:''));
+  $('#notifs-list').innerHTML = list.map(n=>`
+    <div class="notif ${n.type} ${n.status}">
+      <div class="nhead"><span class="ntype">${n.type==='question'?'❓ Question':'🔔 Alerte'}</span>
+        · ${esc(n.agent_name)} · ${fmtTs(n.created_at)} · <span class="st ${n.status==='open'?'pending':'done'}">${n.status}</span></div>
+      <div class="ncontent">${esc(n.content)}</div>
+      ${n.response?`<div class="nanswer">↩ ${esc(n.response)}</div>`:''}
+      ${n.status==='open' && n.type==='question' ? `
+        <div class="nreply"><input id="ans-${n.id}" placeholder="Ta réponse…" onclick="event.stopPropagation()">
+          <button class="small" onclick="answerNotif(${n.id})">Répondre</button>
+          <button class="small secondary" onclick="dismissNotif(${n.id})">Ignorer</button></div>`:''}
+      ${n.status==='open' && n.type==='alert' ? `
+        <div class="nreply"><button class="small secondary" onclick="dismissNotif(${n.id})">Marquer comme lu</button></div>`:''}
+    </div>`).join('') || '<div class="empty">Aucune notification.</div>';
+}
+async function answerNotif(id){
+  const v=$('#ans-'+id).value.trim(); if(!v)return;
+  try{ await api(`/api/notifications/${id}/answer`,{method:'POST',body:JSON.stringify({response:v})}); loadNotifs(); refresh(); }catch(e){alert(e.message);}
+}
+async function dismissNotif(id){ try{ await api(`/api/notifications/${id}/dismiss`,{method:'POST',body:'{}'}); loadNotifs(); refresh(); }catch(e){alert(e.message);} }
+
+/* ---------- missions ---------- */
+async function proposePlan(){
+  const mission = $('#m-mission').value.trim();
+  if(!mission){ alert('Décris la mission'); return; }
+  const btn=$('#m-plan-btn'); btn.disabled=true; $('#m-msg').textContent='Le superviseur élabore le plan…';
+  try{
+    await api('/api/projects',{method:'POST',body:JSON.stringify({mission})});
+    $('#m-mission').value=''; $('#m-msg').textContent='';
+    loadProjects();
+  }catch(e){ $('#m-msg').textContent=''; alert(e.message); }
+  finally{ btn.disabled=false; }
+}
+
+function computeWaves(tasks){
+  const byId = Object.fromEntries(tasks.map(t=>[t.id,t]));
+  const level = {};
+  const lvl = id => {
+    if (level[id]!==undefined) return level[id];
+    const t = byId[id]; if(!t) return 0;
+    const deps = (t.deps||[]).map(d=>d.id).filter(i=>byId[i]);
+    level[id] = deps.length ? 1+Math.max(...deps.map(lvl)) : 0;
+    return level[id];
+  };
+  tasks.forEach(t=>lvl(t.id));
+  const waves=[];
+  tasks.forEach(t=>{ const l=level[t.id]; (waves[l]=waves[l]||[]).push(t); });
+  return waves.filter(Boolean);
+}
+
+const TASK_ICO = {done:'✅', failed:'❌', cancelled:'⛔', in_progress:'⏳', pending:'•'};
+async function loadProjects(){
+  const arch = $('#m-archived').checked;
+  projects = await api('/api/projects'+(arch?'?include_archived=true':''));
+  renderProjects();
+}
+function renderProjects(){
+  const q=$('#m-search').value.toLowerCase(), st=$('#m-status').value;
+  const list = projects.filter(p => (!st || p.status===st) &&
+    (p.title+' '+(p.summary||'')+' '+p.mission).toLowerCase().includes(q));
+  $('#projects-list').innerHTML = list.map(renderProject).join('') || '<div class="empty">Aucune mission. Décris-en une ci-dessus.</div>';
+}
+function trackProj(el, id){ projState.set(id, el.open); }
+function renderProject(p){
+  const pr = p.progress, pct = pr.total ? Math.round(100*pr.done/pr.total) : 0;
+  const isOpen = projState.has(p.id) ? projState.get(p.id) : p.status==='proposed';
+  let body='';
+  if (p.status==='proposed'){
+    (p.plan?.new_agents||[]).forEach(a=>{ body += `<div class="new-agent">+ nouvel agent : <b>${esc(a.name)}</b> — ${esc(a.description||'')}</div>`; });
+    const waves = planWaves(p.plan?.tasks||[]);
+    body += waves.map((w,i)=>`<div class="wave"><div class="wlabel">Étape ${i+1}${w.length>1?' · '+w.length+' tâches en parallèle':''}</div>`+
+      w.map(t=>`<div class="ptask"><span class="pt-ico">•</span><div class="pt-body">
+        <div class="pt-title">${esc(t.title||t.ref)} <span class="pt-meta">→ ${esc(t.agent)}</span></div>
+        <div class="pt-desc">${esc(t.description||'')}</div>
+        ${(t.depends_on&&t.depends_on.length)?`<div class="pt-meta">dépend de : ${t.depends_on.map(esc).join(', ')}</div>`:''}
+      </div></div>`).join('')+`</div>`).join('');
+  } else {
+    const waves = computeWaves(p.tasks);
+    body += waves.map((w,i)=>`<div class="wave"><div class="wlabel">Étape ${i+1}${w.length>1?' · parallèle':''}</div>`+
+      w.map(t=>`<div class="ptask"><span class="pt-ico">${t.blocked?'🔒':(TASK_ICO[t.status]||'•')}</span><div class="pt-body">
+        <div class="pt-title">${esc(t.title||('Tâche #'+t.id))} <span class="pt-meta">→ ${esc(t.agent_name)} · <span class="st ${t.status}">${t.blocked?'en attente de dépendance':t.status}</span>${(t.input_tokens||t.output_tokens)?` · ${fmtTok(t.input_tokens)}/${fmtTok(t.output_tokens)} tok`:''}</span></div>
+        <div class="pt-desc">${esc(t.description||'')}</div>
+        ${t.deps&&t.deps.length?`<div class="pt-meta">↳ après : ${t.deps.map(d=>esc(d.title||('#'+d.id))).join(', ')}</div>`:''}
+      </div></div>`).join('')+`</div>`).join('');
+  }
+  let actions='';
+  if (p.status==='proposed') actions = `<button onclick="approveProject(${p.id})">Valider et lancer</button>
+    <button class="secondary" onclick="replanProject(${p.id})">Régénérer le plan</button>
+    <button class="danger" onclick="deleteProject(${p.id})">Supprimer</button>`;
+  else if (['running','completed','needs_attention'].includes(p.status)) actions = `<button class="secondary" onclick="archiveProject(${p.id})">Archiver</button>
+    <button class="danger" onclick="deleteProject(${p.id})">Supprimer</button>`;
+  else if (p.status==='archived') actions = `<button class="danger" onclick="deleteProject(${p.id})">Supprimer définitivement</button>`;
+  return `<details class="proj" ${isOpen?'open':''} ontoggle="trackProj(this,${p.id})">
+    <summary>
+      <div class="ptitle">${esc(p.title)} <span class="proj-status ${p.status}">${p.status}</span>
+        ${(p.tokens_in||p.tokens_out)?`<span class="pt-meta">${fmtTok(p.tokens_in)}/${fmtTok(p.tokens_out)} tok</span>`:''}</div>
+      <div class="psum">${esc(p.summary||'')}</div>
+      ${p.status!=='proposed'&&pr.total?`<div class="pbar"><i style="width:${pct}%"></i></div>
+        <div class="pt-meta" style="margin-top:4px">${pr.done}/${pr.total} terminées${pr.running?' · '+pr.running+' en cours':''}${pr.failed?' · '+pr.failed+' échec(s)':''}</div>`:''}
+    </summary>
+    ${body}
+    <div class="pactions">${actions}</div>
+  </details>`;
+}
+function planWaves(tasks){
+  const byRef = Object.fromEntries(tasks.map(t=>[t.ref,t]));
+  const level={}; const lvl=ref=>{ if(level[ref]!==undefined)return level[ref]; const t=byRef[ref]; if(!t)return 0;
+    const d=(t.depends_on||[]).filter(x=>byRef[x]); level[ref]=d.length?1+Math.max(...d.map(lvl)):0; return level[ref]; };
+  tasks.forEach(t=>lvl(t.ref)); const waves=[];
+  tasks.forEach(t=>{const l=level[t.ref];(waves[l]=waves[l]||[]).push(t);}); return waves.filter(Boolean);
+}
+async function approveProject(id){
+  try{ const r=await api(`/api/projects/${id}/approve`,{method:'POST',body:'{}'});
+    if(r.errors&&r.errors.length) alert('Plan lancé avec avertissements :\n'+r.errors.join('\n'));
+    loadProjects(); refresh(); }catch(e){ alert(e.message); }
+}
+async function replanProject(id){
+  $('#m-msg').textContent='Régénération du plan…';
+  try{ await api(`/api/projects/${id}/replan`,{method:'POST',body:'{}'}); $('#m-msg').textContent=''; loadProjects(); }
+  catch(e){ $('#m-msg').textContent=''; alert(e.message); }
+}
+async function archiveProject(id){ if(!confirm('Archiver cette mission ? Elle restera consultable.'))return;
+  try{ await api(`/api/projects/${id}/archive`,{method:'POST',body:'{}'}); loadProjects(); refresh(); }catch(e){alert(e.message);} }
+async function deleteProject(id){
+  if(!confirm('Supprimer définitivement cette mission ?\n\nSes tâches (y compris en attente) et les ressources qui leur sont liées seront supprimées.\nPour la conserver consultable, préfère « Archiver ».'))return;
+  try{ await api(`/api/projects/${id}`,{method:'DELETE'}); loadProjects(); refresh(); }catch(e){alert(e.message);} }
+
+/* ---------- réglages : providers ---------- */
+async function loadProviders(silent){
+  providersList = await api('/api/providers');
+  if (silent) return;
+  $('#providers-list').innerHTML = providersList.map(p=>`
+    <div class="prov-row">
+      <div class="grow">
+        <div class="pname">${esc(p.name)}
+          <span class="chip ${p.ptype}">${p.ptype==='anthropic'?'Anthropic-compatible':'OpenAI-compatible'}</span>
+          ${p.is_default?'<span class="chip default">défaut</span>':''}
+          ${p.ptype==='anthropic'&&p.native_features?'<span class="chip">natives</span>':''}</div>
+        <div class="psub">${esc(p.base_url||(p.ptype==='anthropic'?'API Anthropic officielle':'(URL non définie)'))}
+          ${p.default_model?' · modèle : '+esc(p.default_model):''}
+          · clé : ${p.api_key_set?'définie':(p.ptype==='anthropic'?'env ANTHROPIC_API_KEY':'⚠ absente')}
+          · ${p.agents_count} agent(s)</div>
+      </div>
+      <button class="small secondary" onclick='openProviderDlg(${p.id})'>✎ Modifier</button>
+      ${p.is_default?'':`<button class="small secondary" onclick="setDefaultProvider(${p.id})">Définir par défaut</button>`}
+      <button class="small danger" onclick="delProvider(${p.id})">Supprimer</button>
+    </div>`).join('') || '<div class="empty">Aucun provider.</div>';
+}
+function provTypeChange(){
+  const t = $('#p-type').value;
+  $('#p-native-wrap').style.display = t==='anthropic'?'':'none';
+  $('#p-base-hint').textContent = t==='anthropic'?'(vide = API Anthropic officielle)':'(ex. https://api.openai.com/v1)';
+  $('#p-key-hint').style.display = t==='anthropic'?'':'none';
+}
+function openProviderDlg(id){
+  const p = id ? providersList.find(x=>x.id===id) : null;
+  editingProviderId = id;
+  $('#dlgProvider-title').textContent = p ? `Modifier le provider ${p.name}` : 'Ajouter un provider';
+  $('#p-name').value = p?.name || '';
+  $('#p-type').value = p?.ptype || 'anthropic';
+  $('#p-base').value = p?.base_url || '';
+  $('#p-key').value = '';
+  $('#p-key').placeholder = p?.api_key_set ? '•••••••• (inchangée)' : 'sk-…';
+  $('#p-model').value = p?.default_model || '';
+  $('#p-native').checked = p ? !!p.native_features : true;
+  $('#p-default').checked = p ? !!p.is_default : false;
+  $('#p-default').disabled = p ? !!p.is_default : false;
+  provTypeChange();
+  dlgProvider.showModal();
+}
+async function saveProvider(){
+  const body = {
+    name:$('#p-name').value.trim(), ptype:$('#p-type').value, base_url:$('#p-base').value.trim(),
+    default_model:$('#p-model').value.trim(), native_features:$('#p-native').checked};
+  try{
+    if (editingProviderId){
+      if ($('#p-key').value !== '') body.api_key = $('#p-key').value.trim();
+      await api(`/api/providers/${editingProviderId}`,{method:'PATCH',body:JSON.stringify(body)});
+      if ($('#p-default').checked) await api(`/api/providers/${editingProviderId}/default`,{method:'POST',body:'{}'});
+    } else {
+      body.api_key = $('#p-key').value.trim();
+      body.is_default = $('#p-default').checked;
+      await api('/api/providers',{method:'POST',body:JSON.stringify(body)});
+    }
+    dlgProvider.close(); loadProviders();
+  }catch(e){ alert(e.message); }
+}
+async function setDefaultProvider(id){
+  try{ await api(`/api/providers/${id}/default`,{method:'POST',body:'{}'}); loadProviders(); }catch(e){alert(e.message);}
+}
+async function delProvider(id){
+  const p = providersList.find(x=>x.id===id);
+  if(!confirm(`Supprimer le provider « ${p?.name} » ?`+(p?.agents_count?` ${p.agents_count} agent(s) repasseront sur le provider par défaut.`:'')))return;
+  try{ await api(`/api/providers/${id}`,{method:'DELETE'}); loadProviders(); }catch(e){alert(e.message);}
+}
+
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

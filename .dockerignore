@@ -1,0 +1,8 @@
+.venv
+data
+__pycache__
+*.pyc
+.git
+.env
+_t.py
+.uvicorn.pid
