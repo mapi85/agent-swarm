@@ -1,6 +1,7 @@
 """Service back de l'essaim d'agents : API REST + supervision + planificateur."""
 import asyncio
 import logging
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -417,7 +418,14 @@ def resources_content(rid: int, download: bool = False):
             raise HTTPException(404, "Fichier manquant.")
         return FileResponse(fp, filename=r["name"],
                             media_type="application/octet-stream" if download else None)
-    return PlainTextResponse(r.get("content") or "")
+    headers = None
+    if download:
+        # Nom de fichier propre pour les notes/liens (sinon le navigateur invente un nom).
+        name = re.sub(r'[\\/:*?"<>|]', "_", r["name"]).strip() or f"ressource-{rid}"
+        if "." not in name:
+            name += ".txt"
+        headers = {"Content-Disposition": f'attachment; filename="{name}"'}
+    return PlainTextResponse(r.get("content") or "", headers=headers)
 
 
 @app.delete("/api/resources/{rid}")

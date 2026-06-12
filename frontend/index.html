@@ -215,6 +215,23 @@
   #dlgPreview .body{max-height:62vh;overflow:auto;border:1px solid var(--border);border-radius:8px}
   #dlgPreview pre{margin:0;padding:14px;font:12.5px/1.5 Consolas,monospace;white-space:pre-wrap;word-break:break-word}
   #dlgPreview img{max-width:100%;display:block}
+  /* explorateur d'artefacts */
+  .crumbs{font-size:12.5px;color:var(--muted);margin:0 0 10px}
+  .crumbs a{cursor:pointer;color:var(--accent)}
+  /* rendu markdown */
+  .md-body{padding:14px 18px;font-size:13.5px;line-height:1.6}
+  .md-body h1{font-size:19px;margin:10px 0 8px} .md-body h2{font-size:16.5px;margin:14px 0 6px}
+  .md-body h3{font-size:14.5px;margin:12px 0 5px} .md-body h4,.md-body h5,.md-body h6{font-size:13.5px;margin:10px 0 4px}
+  .md-body p{margin:7px 0}
+  .md-body ul,.md-body ol{margin:7px 0;padding-left:24px}
+  .md-body li{margin:2px 0}
+  .md-body code{background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:0 5px;font:12px Consolas,monospace}
+  .md-body pre.codeblock{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:11px 14px;overflow:auto;font:12px/1.5 Consolas,monospace;margin:9px 0}
+  .md-body blockquote{border-left:3px solid var(--border);margin:9px 0;padding:3px 13px;color:var(--muted)}
+  .md-body table{border-collapse:collapse;margin:9px 0}
+  .md-body th,.md-body td{border:1px solid var(--border);padding:4px 10px;font-size:12.5px;text-align:left}
+  .md-body th{background:var(--panel2)}
+  .md-body hr{border:0;border-top:1px solid var(--border);margin:13px 0}
   /* ===== Responsive ===== */
   @media(max-width:900px){
     header{padding:8px 10px;gap:8px}
@@ -348,21 +365,14 @@
         <div class="section-h">Artefacts (fichiers produits par les agents)</div>
         <div class="toolbar">
           <select id="a-agent" onchange="loadArtifacts()"><option value="">— Choisir un agent —</option></select>
-          <select id="a-dir" onchange="renderArtifacts()">
-            <option value="">Tous les dossiers</option>
-            <option value="deliverables">deliverables/</option>
-            <option value="library">library/</option>
-            <option value="memory">memory/</option>
-          </select>
-        </div>
-        <div class="toolbar">
-          <input type="search" id="a-search" placeholder="Rechercher…" oninput="renderArtifacts()">
+          <input type="search" id="a-search" placeholder="Rechercher (dans tous les dossiers)…" oninput="renderArtifacts()">
           <select id="a-sort" onchange="renderArtifacts()">
             <option value="date">Tri : récent</option>
-            <option value="name">Tri : chemin</option>
+            <option value="name">Tri : nom</option>
             <option value="size">Tri : taille</option>
           </select>
         </div>
+        <div class="crumbs" id="a-crumbs"></div>
         <div class="card-list" id="artifacts-list"></div>
       </div>
     </div>
@@ -476,6 +486,7 @@
   <h3 id="pv-title">Aperçu</h3>
   <div class="body" id="pv-body"></div>
   <div class="dialog-actions">
+    <button class="small secondary" id="pv-src" style="display:none" onclick="togglePvSource()">Voir la source</button>
     <a id="pv-dl" style="display:none" download><button class="small secondary">⬇ Télécharger / exporter</button></a>
     <button class="secondary" onclick="dlgPreview.close()">Fermer</button>
   </div>
@@ -500,6 +511,58 @@ const fmtTs = t => t ? new Date(t.endsWith&&(t.endsWith('Z')||t.includes('+')) ?
 const fmtTok = n => n>1e6 ? (n/1e6).toFixed(1)+'M' : n>1e3 ? (n/1e3).toFixed(1)+'k' : (n||0);
 const fmtSize = n => n>1e6 ? (n/1e6).toFixed(1)+' Mo' : n>1e3 ? (n/1e3).toFixed(1)+' Ko' : (n||0)+' o';
 const isImg = n => /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(n);
+const isMd  = n => /\.(md|markdown)$/i.test(n);
+const isText = n => /\.(txt|md|markdown|json|csv|log|py|js|ts|html|css|yml|yaml|xml|sh|ps1|ini|env|toml)$/i.test(n);
+
+/* Rendu Markdown léger (titres, listes, code, tableaux, liens, gras/italique, citations). */
+function mdToHtml(src){
+  const codes = [];
+  src = src.replace(/\r\n/g,'\n')
+           .replace(/```\w*\n?([\s\S]*?)```/g, (m,c)=>{ codes.push(c); return `\u0000${codes.length-1}\u0000`; });
+  const inline = t => esc(t)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+    .replace(/(^|[\s(])\*([^*\n]+)\*/g, '$1<i>$2</i>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  const lines = src.split('\n');
+  let html = '', i = 0, m;
+  while (i < lines.length){
+    const l = lines[i];
+    if (/^\s*$/.test(l)){ i++; continue; }
+    if (/^\u0000\d+\u0000\s*$/.test(l)){ html += l.trim(); i++; continue; }
+    if (m = l.match(/^(#{1,6})\s+(.*)/)){ html += `<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`; i++; continue; }
+    if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(l)){ html += '<hr>'; i++; continue; }
+    if (/^\s*([-*+]|\d+[.)])\s+/.test(l)){
+      const tag = /^\s*\d/.test(l) ? 'ol' : 'ul';
+      html += `<${tag}>`;
+      while (i < lines.length && /^\s*([-*+]|\d+[.)])\s+/.test(lines[i])){
+        html += `<li>${inline(lines[i].replace(/^\s*([-*+]|\d+[.)])\s+/,''))}</li>`; i++;
+      }
+      html += `</${tag}>`; continue;
+    }
+    if (/^\s*>/.test(l)){
+      const q = [];
+      while (i < lines.length && /^\s*>/.test(lines[i])){ q.push(lines[i].replace(/^\s*>\s?/,'')); i++; }
+      html += `<blockquote>${q.map(inline).join('<br>')}</blockquote>`; continue;
+    }
+    if (/^\s*\|.*\|/.test(l) && i+1 < lines.length && /^\s*\|[\s:|-]+\|\s*$/.test(lines[i+1])){
+      const rows = [];
+      while (i < lines.length && /^\s*\|.*\|/.test(lines[i])){ rows.push(lines[i]); i++; }
+      const cells = r => r.trim().replace(/^\||\|$/g,'').split('|').map(c=>inline(c.trim()));
+      html += '<table><tr>' + cells(rows[0]).map(c=>`<th>${c}</th>`).join('') + '</tr>';
+      rows.slice(2).forEach(r=>{ html += '<tr>' + cells(r).map(c=>`<td>${c}</td>`).join('') + '</tr>'; });
+      html += '</table>'; continue;
+    }
+    const p = [];
+    while (i < lines.length && !/^\s*$/.test(lines[i])
+           && !/^(#{1,6}\s|\s*([-*+]|\d+[.)])\s|\s*>|\s*\|.*\||\u0000)/.test(lines[i])){
+      p.push(lines[i]); i++;
+    }
+    if (!p.length){ p.push(l); i++; }
+    html += `<p>${p.map(inline).join('<br>')}</p>`;
+  }
+  return html.replace(/\u0000(\d+)\u0000/g, (m,n)=>`<pre class="codeblock">${esc(codes[+n])}</pre>`);
+}
 
 const STATE_LABEL = {running:'▶ en cours', paused:'⏸ en pause', awaiting:'❓ attend une réponse',
                      scheduled:'⏱ session planifiée', idle:'inactif'};
@@ -833,44 +896,108 @@ async function delResource(id){ if(!confirm('Supprimer cette ressource ?'))retur
 
 async function previewResource(id){
   const r = resources.find(x=>x.id===id);
-  const url = `/api/resources/${id}/content`;
+  const url = `/api/resources/${id}/content`, dlUrl = url+'?download=true';
   if (r.kind==='link'){ showPreview(r.name, `<div style="padding:14px"><a href="${esc(r.content)}" target="_blank">${esc(r.content)}</a></div>`, null); return; }
-  if (r.kind==='file' && isImg(r.name)){ showPreview(r.name, `<img src="${url}">`, url+'?download=true'); return; }
-  try{ const txt = await (await fetch(url)).text(); showPreview(r.name, `<pre>${esc(txt)}</pre>`, url+'?download=true'); }
-  catch(e){ showPreview(r.name, `<div class="empty">${esc(e.message)}</div>`, url); }
+  if (r.kind==='file' && isImg(r.name)){ showPreview(r.name, `<img src="${url}">`, dlUrl, r.name); return; }
+  if (r.kind==='file' && !isText(r.name)){ showPreview(r.name, `<div class="empty">Pas d'aperçu pour ce type de fichier — utilise le téléchargement.</div>`, dlUrl, r.name); return; }
+  try{
+    const txt = await (await fetch(url)).text();
+    const md = r.kind==='file' ? isMd(r.name) : /^\s*#{1,6}\s/m.test(txt);  // note : markdown si elle commence par un titre
+    showPreview(r.name, md ? `<div class="md-body">${mdToHtml(txt)}</div>` : `<pre>${esc(txt)}</pre>`,
+                dlUrl, r.name, md ? txt : null);
+  }
+  catch(e){ showPreview(r.name, `<div class="empty">${esc(e.message)}</div>`, dlUrl, r.name); }
 }
 
-/* ---------- artefacts ---------- */
+/* ---------- artefacts (explorateur par dossiers) ---------- */
+let artPath = '';
 async function loadArtifacts(){
   const id=$('#a-agent').value;
+  artPath = '';
   if(!id){ artifacts=[]; renderArtifacts(); return; }
   artifacts = await api(`/api/agents/${id}/artifacts`);
   renderArtifacts();
 }
+function setArtPath(p){ artPath = p; renderArtifacts(); }
+function artFileRow(id, f, fullPath){
+  const name = fullPath ? f.path : f.path.split('/').pop();
+  return `<div class="res-row" onclick='previewArtifact(${id},${JSON.stringify(f.path)})'>
+    <span class="ico">${isImg(f.path)?'🖼':isMd(f.path)?'📝':'📄'}</span>
+    <div class="grow"><div class="rname">${esc(name)}</div>
+      <div class="rsub">${fmtSize(f.size)} · ${fmtTs(new Date(f.mtime*1000).toISOString())}</div></div>
+  </div>`;
+}
 function renderArtifacts(){
-  const q=$('#a-search').value.toLowerCase(), sort=$('#a-sort').value, id=$('#a-agent').value, dir=$('#a-dir').value;
-  let list = artifacts.filter(f=>f.path.toLowerCase().includes(q) && (!dir || f.dir===dir));
-  list.sort((a,b)=> sort==='name'?a.path.localeCompare(b.path): sort==='size'?b.size-a.size: b.mtime-a.mtime);
-  $('#artifacts-list').innerHTML = !id ? '<div class="empty">Choisis un agent.</div>' : (list.map(f=>`
-    <div class="res-row" onclick='previewArtifact(${id},${JSON.stringify(f.path)})'>
-      <span class="ico">${isImg(f.path)?'🖼':'📄'}</span>
-      <div class="grow"><div class="rname">${esc(f.path)}</div>
-        <div class="rsub">${fmtSize(f.size)} · ${fmtTs(new Date(f.mtime*1000).toISOString())}</div></div>
-      <span class="chip">${esc(f.dir)}</span>
-    </div>`).join('') || '<div class="empty">Aucun artefact.</div>');
+  const q=$('#a-search').value.toLowerCase(), sort=$('#a-sort').value, id=$('#a-agent').value;
+  const box=$('#artifacts-list'), bc=$('#a-crumbs');
+  if(!id){ box.innerHTML='<div class="empty">Choisis un agent.</div>'; bc.innerHTML=''; return; }
+  const sortFiles = list => list.sort((a,b)=> sort==='name'?a.path.localeCompare(b.path)
+    : sort==='size'?b.size-a.size : b.mtime-a.mtime);
+  // recherche : à plat sur tous les dossiers, chemins complets
+  if (q){
+    bc.innerHTML = 'Résultats de recherche — <a onclick="$(\'#a-search\').value=\'\';renderArtifacts()">effacer</a>';
+    const list = sortFiles(artifacts.filter(f=>f.path.toLowerCase().includes(q)));
+    box.innerHTML = list.map(f=>artFileRow(id,f,true)).join('') || '<div class="empty">Aucun résultat.</div>';
+    return;
+  }
+  // fil d'ariane
+  const segs = artPath ? artPath.split('/') : [];
+  let crumbs = `<a onclick='setArtPath("")'>🏠 racine</a>`;
+  segs.forEach((s,i)=>{ crumbs += ' / ' + `<a onclick='setArtPath(${JSON.stringify(segs.slice(0,i+1).join('/'))})'>${esc(s)}</a>`; });
+  bc.innerHTML = crumbs;
+  // contenu du dossier courant : sous-dossiers puis fichiers
+  const prefix = artPath ? artPath+'/' : '';
+  const folders = new Map(), files = [];
+  for (const f of artifacts){
+    if (!f.path.startsWith(prefix)) continue;
+    const rest = f.path.slice(prefix.length);
+    const cut = rest.indexOf('/');
+    if (cut === -1) files.push(f);
+    else { const seg = rest.slice(0, cut); const e = folders.get(seg)||{n:0,size:0}; e.n++; e.size+=f.size; folders.set(seg,e); }
+  }
+  let html = [...folders.keys()].sort().map(seg=>{ const e=folders.get(seg); return `
+    <div class="res-row" onclick='setArtPath(${JSON.stringify(prefix+seg)})'>
+      <span class="ico">📁</span>
+      <div class="grow"><div class="rname">${esc(seg)}/</div>
+        <div class="rsub">${e.n} fichier(s) · ${fmtSize(e.size)}</div></div>
+      <span class="chip">dossier</span>
+    </div>`;}).join('');
+  html += sortFiles(files).map(f=>artFileRow(id,f,false)).join('');
+  box.innerHTML = html || '<div class="empty">Dossier vide.</div>';
 }
 async function previewArtifact(id, path){
   const url = `/api/agents/${id}/artifact?path=${encodeURIComponent(path)}`;
-  if (isImg(path)){ showPreview(path, `<img src="${url}">`, url+'&download=true'); return; }
-  try{ const txt = await (await fetch(url)).text(); showPreview(path, `<pre>${esc(txt)}</pre>`, url+'&download=true'); }
-  catch(e){ showPreview(path, `<div class="empty">${esc(e.message)}</div>`, url+'&download=true'); }
+  const name = path.split('/').pop();
+  if (isImg(path)){ showPreview(name, `<img src="${url}">`, url+'&download=true', name); return; }
+  if (!isText(path)){ showPreview(name, `<div class="empty">Pas d'aperçu pour ce type de fichier — utilise le téléchargement.</div>`, url+'&download=true', name); return; }
+  try{
+    const txt = await (await fetch(url)).text();
+    showPreview(name, isMd(path) ? `<div class="md-body">${mdToHtml(txt)}</div>` : `<pre>${esc(txt)}</pre>`,
+                url+'&download=true', name, isMd(path) ? txt : null);
+  }
+  catch(e){ showPreview(name, `<div class="empty">${esc(e.message)}</div>`, url+'&download=true', name); }
 }
-function showPreview(title, bodyHtml, dlUrl){
+let pvMdSource = null, pvShowingSource = false;
+function showPreview(title, bodyHtml, dlUrl, dlName, mdSource){
+  pvMdSource = mdSource ?? null; pvShowingSource = false;
   $('#pv-title').textContent = '👁 '+title;
   $('#pv-body').innerHTML = bodyHtml;
   const dl = $('#pv-dl');
-  if (dlUrl){ dl.style.display=''; dl.href=dlUrl; } else dl.style.display='none';
+  if (dlUrl){
+    dl.style.display=''; dl.href=dlUrl;
+    if (dlName) dl.setAttribute('download', dlName); else dl.removeAttribute('download');
+  } else dl.style.display='none';
+  const src = $('#pv-src');
+  src.style.display = pvMdSource !== null ? '' : 'none';
+  src.textContent = 'Voir la source';
   dlgPreview.showModal();
+}
+function togglePvSource(){
+  if (pvMdSource === null) return;
+  pvShowingSource = !pvShowingSource;
+  $('#pv-body').innerHTML = pvShowingSource ? `<pre>${esc(pvMdSource)}</pre>`
+                                            : `<div class="md-body">${mdToHtml(pvMdSource)}</div>`;
+  $('#pv-src').textContent = pvShowingSource ? 'Voir le rendu' : 'Voir la source';
 }
 
 /* ---------- notifications (cloche) ---------- */
