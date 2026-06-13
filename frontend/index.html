@@ -117,7 +117,7 @@
   details.titem>summary::-webkit-details-marker{display:none}
   details.titem>summary:hover{background:var(--panel2)}
   details.titem>summary .tsum{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
-  details.titem .tbody{padding:4px 14px 10px;color:var(--muted);white-space:pre-wrap}
+  details.titem .tbody{padding:4px 14px 10px;color:var(--muted)}
   .st{font-weight:650}
   .st.running{color:var(--green)} .st.planned{color:var(--accent)} .st.completed{color:var(--muted)}
   .st.failed,.st.interrupted,.st.cancelled{color:var(--red)} .st.pending{color:var(--orange)}
@@ -235,6 +235,8 @@
   .md-body th,.md-body td{border:1px solid var(--border);padding:4px 10px;font-size:12.5px;text-align:left}
   .md-body th{background:var(--panel2)}
   .md-body hr{border:0;border-top:1px solid var(--border);margin:13px 0}
+  .md-compact{padding:0}
+  .md-compact>:first-child{margin-top:0} .md-compact>:last-child{margin-bottom:0}
   /* ===== Responsive ===== */
   @media(max-width:900px){
     header{padding:8px 10px;gap:8px}
@@ -567,6 +569,9 @@ function mdToHtml(src){
   return html.replace(/\u0000(\d+)\u0000/g, (m,n)=>`<pre class="codeblock">${esc(codes[+n])}</pre>`);
 }
 
+/* Rendu Markdown compact (sans marges externes), pour les contenus intégrés (tâches, missions, notifications). */
+const md = src => `<div class="md-body md-compact">${mdToHtml(src||'')}</div>`;
+
 const STATE_LABEL = {running:'▶ en cours', paused:'⏸ en pause', awaiting:'❓ attend une réponse',
                      scheduled:'⏱ session planifiée', idle:'inactif'};
 
@@ -709,9 +714,9 @@ async function refreshLists() {
       <summary><span class="st ${t.status}">#${t.id} · ${t.status}</span>
         <span class="tsum">${esc(t.title||t.description)}</span>
         ${(t.input_tokens||t.output_tokens)?`<span class="sub" style="white-space:nowrap">${fmtTok(t.input_tokens)}/${fmtTok(t.output_tokens)} tok</span>`:''}</summary>
-      <div class="tbody">${esc(t.description)}
+      <div class="tbody">${md(t.description)}
         <div class="sub" style="margin-top:6px">de ${esc(t.origin)}${t.project_id?` · mission #${t.project_id}`:''} · créée ${fmtTs(t.created_at)}${t.completed_at?` · close ${fmtTs(t.completed_at)}`:''}</div>
-        ${t.result?`<div class="sub" style="margin-top:4px">↳ ${esc(t.result.slice(0,600))}</div>`:''}</div>
+        ${t.result?`<div class="sub" style="margin-top:4px">↳ résultat :</div>${md(t.result)}`:''}</div>
     </details>`).join('') || '<div class="task-item" style="cursor:default;color:var(--muted)">Aucune tâche.</div>';
   $('#d-services').innerHTML = services.map(s => `
     <div class="task-item" style="cursor:default">
@@ -1024,7 +1029,7 @@ async function loadNotifs(){
     <div class="notif ${n.type} ${n.status}">
       <div class="nhead"><span class="ntype">${n.type==='question'?'❓ Question':'🔔 Alerte'}</span>
         · ${esc(n.agent_name)} · ${fmtTs(n.created_at)} · <span class="st ${n.status==='open'?'pending':'done'}">${n.status}</span></div>
-      <div class="ncontent">${esc(n.content)}</div>
+      <div class="ncontent">${md(n.content)}</div>
       ${n.response?`<div class="nanswer">↩ ${esc(n.response)}</div>`:''}
       ${n.status==='open' && n.type==='question' ? `
         <div class="nreply"><input id="ans-${n.id}" placeholder="Ta réponse…" onclick="event.stopPropagation()">
@@ -1092,7 +1097,7 @@ function renderProject(p){
     body += waves.map((w,i)=>`<div class="wave"><div class="wlabel">Étape ${i+1}${w.length>1?' · '+w.length+' tâches en parallèle':''}</div>`+
       w.map(t=>`<div class="ptask"><span class="pt-ico">•</span><div class="pt-body">
         <div class="pt-title">${esc(t.title||t.ref)} <span class="pt-meta">→ ${esc(t.agent)}</span></div>
-        <div class="pt-desc">${esc(t.description||'')}</div>
+        <div class="pt-desc">${md(t.description||'')}</div>
         ${(t.depends_on&&t.depends_on.length)?`<div class="pt-meta">dépend de : ${t.depends_on.map(esc).join(', ')}</div>`:''}
       </div></div>`).join('')+`</div>`).join('');
   } else {
@@ -1100,7 +1105,7 @@ function renderProject(p){
     body += waves.map((w,i)=>`<div class="wave"><div class="wlabel">Étape ${i+1}${w.length>1?' · parallèle':''}</div>`+
       w.map(t=>`<div class="ptask"><span class="pt-ico">${t.blocked?'🔒':(TASK_ICO[t.status]||'•')}</span><div class="pt-body">
         <div class="pt-title">${esc(t.title||('Tâche #'+t.id))} <span class="pt-meta">→ ${esc(t.agent_name)} · <span class="st ${t.status}">${t.blocked?'en attente de dépendance':t.status}</span>${(t.input_tokens||t.output_tokens)?` · ${fmtTok(t.input_tokens)}/${fmtTok(t.output_tokens)} tok`:''}</span></div>
-        <div class="pt-desc">${esc(t.description||'')}</div>
+        <div class="pt-desc">${md(t.description||'')}</div>
         ${t.deps&&t.deps.length?`<div class="pt-meta">↳ après : ${t.deps.map(d=>esc(d.title||('#'+d.id))).join(', ')}</div>`:''}
       </div></div>`).join('')+`</div>`).join('');
   }
