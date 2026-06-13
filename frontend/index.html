@@ -704,7 +704,9 @@ async function refreshLists() {
     <div class="session-item ${selectedSession?.id===s.id?'selected':''}" onclick="selectSession(${s.id})">
       <div><span class="st ${s.status}">n°${s.number} · ${s.status}</span>
         ${s.status==='running' ? `<button class="small danger" style="float:right" onclick="event.stopPropagation();act('/api/sessions/${s.id}/interrupt')">Stop</button>`:''}
-        ${s.status==='planned' ? `<button class="small" style="float:right" onclick="event.stopPropagation();openRunNow(${s.id})">▶ Lancer</button>`:''}</div>
+        ${s.status==='planned' ? `<span style="float:right;display:inline-flex;gap:6px">
+          <button class="small" onclick="event.stopPropagation();openRunNow(${s.id})">▶ Lancer</button>
+          <button class="small danger" onclick="event.stopPropagation();cancelSession(${s.id})">✕ Annuler</button></span>`:''}</div>
       <div class="obj">${esc(s.objective)}</div>
       <div class="sub">${s.status==='planned' ? '⏱ '+fmtTs(s.scheduled_at) : fmtTs(s.started_at)}
         ${s.input_tokens ? ' · '+fmtTok(s.input_tokens)+'/'+fmtTok(s.output_tokens)+' tok' : ''}${s.provider?' · '+esc(s.provider):''}${s.user_note?' · 📝 note':''}</div>
@@ -770,6 +772,11 @@ async function runNow(){
     if (r.warnings && r.warnings.length) alert(r.warnings.join('\n'));
     await refresh();
   }catch(e){ alert(e.message); }
+}
+async function cancelSession(id){
+  if(!confirm('Annuler cette session planifiée ?\n\nL\'agent ne se relancera pas tout seul tant que tu ne lui crées pas une nouvelle session (+ Session) ou une tâche.'))return;
+  try{ await api(`/api/sessions/${id}/interrupt`, {method:'POST', body:'{}'}); await refresh(); }
+  catch(e){ alert(e.message); }
 }
 
 async function deleteAgent(){
