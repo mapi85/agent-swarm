@@ -9,6 +9,9 @@ from . import config
 _lock = threading.Lock()
 _conn: sqlite3.Connection | None = None
 
+# Modèles Claude proposés par défaut pour un provider Anthropic neuf.
+DEFAULT_ANTHROPIC_MODELS = ("claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5")
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS agents (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -143,6 +146,7 @@ CREATE TABLE IF NOT EXISTS providers (
     base_url        TEXT NOT NULL DEFAULT '',
     api_key         TEXT NOT NULL DEFAULT '',
     default_model   TEXT NOT NULL DEFAULT '',
+    models          TEXT NOT NULL DEFAULT '[]',          -- liste JSON des modèles proposés
     native_features INTEGER NOT NULL DEFAULT 1,          -- (anthropic) thinking/effort/compaction/cache
     is_default      INTEGER NOT NULL DEFAULT 0,
     limit_short_tokens INTEGER NOT NULL DEFAULT 0,       -- plafond court terme (tokens)
@@ -195,6 +199,15 @@ def _migrate(conn: sqlite3.Connection) -> None:
     for col in ("limit_short_tokens", "limit_short_hours", "limit_long_tokens", "limit_long_days"):
         if col not in pcols:
             conn.execute(f"ALTER TABLE providers ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
+    if "models" not in pcols:
+        conn.execute("ALTER TABLE providers ADD COLUMN models TEXT NOT NULL DEFAULT '[]'")
+        # Amorce : pour les providers anthropic existants sans liste, propose les modèles Claude courants.
+        for p in conn.execute("SELECT id, ptype, default_model FROM providers"):
+            models = list(DEFAULT_ANTHROPIC_MODELS) if p["ptype"] == "anthropic" else []
+            if p["default_model"] and p["default_model"] not in models:
+                models.insert(0, p["default_model"])
+            conn.execute("UPDATE providers SET models = ? WHERE id = ?",
+                         (json.dumps(models), p["id"]))
     _seed_providers(conn)
     conn.commit()
 
@@ -211,11 +224,14 @@ def _seed_providers(conn: sqlite3.Connection) -> None:
         return json.loads(row["value"]) if row else {}
 
     p = setting("primary_provider")
+    a_models = list(DEFAULT_ANTHROPIC_MODELS)
+    if config.DEFAULT_MODEL not in a_models:
+        a_models.insert(0, config.DEFAULT_MODEL)
     conn.execute(
-        "INSERT INTO providers (name, ptype, base_url, api_key, default_model, native_features, is_default, created_at) "
-        "VALUES (?, 'anthropic', ?, ?, ?, ?, 1, ?)",
+        "INSERT INTO providers (name, ptype, base_url, api_key, default_model, models, native_features, is_default, created_at) "
+        "VALUES (?, 'anthropic', ?, ?, ?, ?, ?, 1, ?)",
         ("Anthropic" if not p.get("base_url") else "Primaire (migré)",
-         p.get("base_url", ""), p.get("api_key", ""), config.DEFAULT_MODEL,
+         p.get("base_url", ""), p.get("api_key", ""), config.DEFAULT_MODEL, json.dumps(a_models),
          1 if p.get("native_features", True) else 0, ts))
     f = setting("fallback_provider")
     if f.get("enabled") and f.get("base_url"):
@@ -437,12 +453,14 @@ def set_setting(key: str, value) -> None:
 # ---------- Providers LLM ----------
 
 def create_provider(name, ptype, base_url, api_key, default_model, native_features, is_default=False,
-                    limit_short_tokens=0, limit_short_hours=0, limit_long_tokens=0, limit_long_days=0) -> int:
+                    limit_short_tokens=0, limit_short_hours=0, limit_long_tokens=0, limit_long_days=0,
+                    models=None) -> int:
     pid = execute(
-        "INSERT INTO providers (name, ptype, base_url, api_key, default_model, native_features, is_default, "
+        "INSERT INTO providers (name, ptype, base_url, api_key, default_model, models, native_features, is_default, "
         "limit_short_tokens, limit_short_hours, limit_long_tokens, limit_long_days, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)",
-        (name, ptype, base_url, api_key, default_model, 1 if native_features else 0,
+        "VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)",
+        (name, ptype, base_url, api_key, default_model, json.dumps(models or []),
+         1 if native_features else 0,
          limit_short_tokens, limit_short_hours, limit_long_tokens, limit_long_days, now()))
     if is_default:
         set_default_provider(pid)

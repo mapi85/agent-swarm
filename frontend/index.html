@@ -464,14 +464,11 @@
   <label>Mission (prompt générique)</label>
   <textarea id="f-mission" rows="6" placeholder="Mission permanente, périmètre, livrables attendus…"></textarea>
   <label>Provider LLM</label>
-  <select id="f-provider"></select>
+  <select id="f-provider" onchange="onAgentProviderChange(true)"></select>
   <label>Modèle</label>
-  <input id="f-model" list="model-suggestions" placeholder="claude-opus-4-8 / gpt-5.2 / glm-4.7 / …">
-  <datalist id="model-suggestions">
-    <option value="claude-opus-4-8"></option>
-    <option value="claude-sonnet-4-6"></option>
-    <option value="claude-haiku-4-5"></option>
-  </datalist>
+  <select id="f-model" onchange="onModelChange()"></select>
+  <input id="f-model-custom" style="display:none;margin-top:6px" placeholder="Nom exact du modèle">
+  <div class="hint" id="f-model-hint"></div>
   <label>Effort</label>
   <select id="f-effort"><option>low</option><option>medium</option><option selected>high</option><option>max</option></select>
   <label>Itérations max par session</label><input id="f-iter" type="number" value="60" min="5" max="500">
@@ -492,8 +489,12 @@
   <label>Clé API</label>
   <input id="p-key" type="password" placeholder="sk-…">
   <div class="hint" id="p-key-hint">Pour le type Anthropic : vide = variable d'environnement ANTHROPIC_API_KEY.</div>
-  <label>Modèle par défaut (suggéré aux agents)</label>
-  <input id="p-model" placeholder="claude-opus-4-8 / gpt-5.2 / …">
+  <label>Modèles proposés (un par ligne)</label>
+  <textarea id="p-models" rows="3" oninput="syncProviderModelList()" placeholder="claude-opus-4-8&#10;claude-sonnet-4-6&#10;claude-haiku-4-5"></textarea>
+  <div class="hint">Ces modèles seront proposés au choix lors de la création/modification d'un agent rattaché à ce provider.</div>
+  <label>Modèle par défaut</label>
+  <input id="p-model" list="p-model-list" placeholder="(le 1er de la liste si vide)">
+  <datalist id="p-model-list"></datalist>
   <div class="row-inline" id="p-native-wrap">
     <input type="checkbox" id="p-native" checked>
     <label for="p-native">Fonctionnalités natives Anthropic (thinking adaptatif, effort, compaction, cache)</label>
@@ -963,18 +964,54 @@ async function openAgentDlg(agent){
   $('#f-category').value = agent?.category || '';
   $('#f-mission').value = agent?.mission_prompt || '';
   $('#f-provider').value = agent?.provider_id || '';
-  $('#f-model').value = agent?.model || 'claude-opus-4-8';
+  // Le menu des modèles suit le provider sélectionné ; en édition on garde le modèle actuel,
+  // sinon on présélectionne le modèle par défaut du provider.
+  $('#f-model-custom').value = '';
+  fillModelSelect(agent?.model || currentProvider()?.default_model || '');
   $('#f-effort').value = agent?.effort || 'high';
   $('#f-iter').value = agent?.max_iterations || 60;
   $('#f-budget').value = agent?.session_token_budget || 0;
   dlgAgent.showModal();
 }
+function currentProvider(){
+  const id = $('#f-provider').value ? +$('#f-provider').value : null;
+  return providersList.find(p=>p.id===id) || providersList.find(p=>p.is_default) || null;
+}
+function fillModelSelect(selected){
+  const prov = currentProvider();
+  const models = (prov?.models || []).slice();
+  if (selected && !models.includes(selected)) models.unshift(selected);   // préserve un modèle existant hors liste
+  const sel = $('#f-model');
+  sel.innerHTML = models.map(m=>`<option value="${esc(m)}"${m===selected?' selected':''}>${esc(m)}</option>`).join('')
+    + `<option value="__custom__"${selected&&!models.includes(selected)?' selected':''}>✎ Autre (saisir)…</option>`;
+  if (!models.length && !selected) sel.value = '__custom__';
+  $('#f-model-hint').textContent = prov
+    ? `Modèles proposés par le provider « ${prov.name} »${prov.models&&prov.models.length?'':' (aucun déclaré — saisis le nom du modèle)'}.`
+    : 'Aucun provider configuré.';
+  onModelChange();
+}
+function onAgentProviderChange(autofill){
+  // Changement de provider : recharge la liste, et choisit le modèle par défaut du provider.
+  const prov = currentProvider();
+  fillModelSelect(autofill ? (prov?.default_model || (prov?.models||[])[0] || '') : getModelValue());
+}
+function onModelChange(){
+  const custom = $('#f-model').value === '__custom__';
+  $('#f-model-custom').style.display = custom ? '' : 'none';
+  if (custom) $('#f-model-custom').focus();
+}
+function getModelValue(){
+  const v = $('#f-model').value;
+  return v === '__custom__' ? $('#f-model-custom').value.trim() : v;
+}
 async function saveAgent() {
   const provider_id = $('#f-provider').value ? +$('#f-provider').value : null;
+  const model = getModelValue();
+  if (!model){ alert('Choisis ou saisis un modèle.'); return; }
   const body = {
     description:$('#f-desc').value.trim(), mission_prompt:$('#f-mission').value.trim(),
     category:$('#f-category').value.trim(),
-    model:$('#f-model').value.trim(), effort:$('#f-effort').value,
+    model, effort:$('#f-effort').value,
     max_iterations:+$('#f-iter').value||60, session_token_budget:+$('#f-budget').value||0};
   try {
     if (editingAgentId){
@@ -1328,9 +1365,11 @@ async function loadProviders(silent){
           ${p.is_default?'<span class="chip default">défaut</span>':''}
           ${p.ptype==='anthropic'&&p.native_features?'<span class="chip">natives</span>':''}</div>
         <div class="psub">${esc(p.base_url||(p.ptype==='anthropic'?'API Anthropic officielle':'(URL non définie)'))}
-          ${p.default_model?' · modèle : '+esc(p.default_model):''}
           · clé : ${p.api_key_set?'définie':(p.ptype==='anthropic'?'env ANTHROPIC_API_KEY':'⚠ absente')}
           · ${p.agents_count} agent(s)</div>
+        <div class="psub">${(p.models&&p.models.length)
+          ? `modèles : ${p.models.map(m=>esc(m)+(m===p.default_model?' ★':'')).join(', ')}`
+          : '⚠ aucun modèle déclaré'}</div>
         ${usageGauge('Court terme', p.usage?.short, u=>`sur ${u.hours} h`)}
         ${usageGauge('Long terme', p.usage?.long, u=>`sur ${u.days} j`)}
       </div>
@@ -1348,11 +1387,17 @@ function usageGauge(label, u, windowFn){
       <span>${fmtTok(u.used)} / ${fmtTok(u.limit)} · ${u.pct}%</span></div>
     <div class="gauge-bar"><i class="${cls}" style="width:${pct}%"></i></div></div>`;
 }
+const DEFAULT_ANTHROPIC_MODELS = ['claude-opus-4-8','claude-sonnet-4-6','claude-haiku-4-5'];
 function provTypeChange(){
   const t = $('#p-type').value;
   $('#p-native-wrap').style.display = t==='anthropic'?'':'none';
   $('#p-base-hint').textContent = t==='anthropic'?'(vide = API Anthropic officielle)':'(ex. https://api.openai.com/v1)';
   $('#p-key-hint').style.display = t==='anthropic'?'':'none';
+  // Aide à la saisie : pré-remplit les modèles Claude si la liste est vide et que le type est Anthropic.
+  if (t==='anthropic' && !$('#p-models').value.trim()){
+    $('#p-models').value = DEFAULT_ANTHROPIC_MODELS.join('\n');
+    syncProviderModelList();
+  }
 }
 function openProviderDlg(id){
   const p = id ? providersList.find(x=>x.id===id) : null;
@@ -1363,7 +1408,9 @@ function openProviderDlg(id){
   $('#p-base').value = p?.base_url || '';
   $('#p-key').value = '';
   $('#p-key').placeholder = p?.api_key_set ? '•••••••• (inchangée)' : 'sk-…';
+  $('#p-models').value = (p?.models || []).join('\n');
   $('#p-model').value = p?.default_model || '';
+  syncProviderModelList();
   $('#p-native').checked = p ? !!p.native_features : true;
   $('#p-lim-st').value = p?.limit_short_tokens || '';
   $('#p-lim-sh').value = p?.limit_short_hours || '';
@@ -1374,10 +1421,18 @@ function openProviderDlg(id){
   provTypeChange();
   dlgProvider.showModal();
 }
+function parseModels(text){
+  return [...new Set(text.split(/[\n,]/).map(s=>s.trim()).filter(Boolean))];
+}
+function syncProviderModelList(){
+  // alimente la datalist du « modèle par défaut » avec les modèles saisis
+  $('#p-model-list').innerHTML = parseModels($('#p-models').value).map(m=>`<option value="${esc(m)}">`).join('');
+}
 async function saveProvider(){
+  const models = parseModels($('#p-models').value);
   const body = {
     name:$('#p-name').value.trim(), ptype:$('#p-type').value, base_url:$('#p-base').value.trim(),
-    default_model:$('#p-model').value.trim(), native_features:$('#p-native').checked,
+    models, default_model:$('#p-model').value.trim(), native_features:$('#p-native').checked,
     limit_short_tokens:+$('#p-lim-st').value||0, limit_short_hours:+$('#p-lim-sh').value||0,
     limit_long_tokens:+$('#p-lim-lt').value||0, limit_long_days:+$('#p-lim-ld').value||0};
   try{

@@ -1,5 +1,6 @@
 """Service back de l'essaim d'agents : API REST + supervision + planificateur."""
 import asyncio
+import json
 import logging
 import re
 from contextlib import asynccontextmanager
@@ -96,6 +97,7 @@ class ProviderCreate(BaseModel):
     base_url: str = ""
     api_key: str = ""
     default_model: str = ""
+    models: list[str] = []
     native_features: bool = True
     is_default: bool = False
     limit_short_tokens: int = 0
@@ -110,6 +112,7 @@ class ProviderUpdate(BaseModel):
     base_url: str | None = None
     api_key: str | None = None                # None = inchangée
     default_model: str | None = None
+    models: list[str] | None = None
     native_features: bool | None = None
     limit_short_tokens: int | None = None
     limit_short_hours: int | None = None
@@ -516,10 +519,25 @@ def memories_delete(agent_id: int, mid: int):
 # Providers LLM
 # ---------------------------------------------------------------------------
 
+def _clean_models(models: list[str]) -> list[str]:
+    """Normalise une liste de modèles : trim, non vides, dédupliqués, ordre préservé."""
+    seen, out = set(), []
+    for m in models or []:
+        m = (m or "").strip()
+        if m and m not in seen:
+            seen.add(m)
+            out.append(m)
+    return out
+
+
 def _provider_payload(p: dict) -> dict:
     out = {k: v for k, v in p.items() if k != "api_key"}
     out["api_key_set"] = bool(p["api_key"])
     out["agents_count"] = db.provider_in_use(p["id"])
+    try:
+        out["models"] = json.loads(p.get("models") or "[]")
+    except (TypeError, ValueError):
+        out["models"] = []
     # Taux de consommation sur les fenêtres glissantes configurées.
     usage = {}
     if p["limit_short_tokens"] and p["limit_short_hours"]:
@@ -547,11 +565,15 @@ def providers_create(body: ProviderCreate):
         raise HTTPException(400, "Type de provider invalide (anthropic | openai).")
     if db.get_provider_by_name(body.name.strip()):
         raise HTTPException(409, f"Un provider nommé '{body.name}' existe déjà.")
+    models = _clean_models(body.models)
+    default_model = body.default_model.strip() or (models[0] if models else "")
+    if default_model and default_model not in models:
+        models.insert(0, default_model)
     pid = db.create_provider(body.name.strip(), body.ptype, body.base_url.strip(),
-                             body.api_key.strip(), body.default_model.strip(),
+                             body.api_key.strip(), default_model,
                              body.native_features, body.is_default,
                              max(body.limit_short_tokens, 0), max(body.limit_short_hours, 0),
-                             max(body.limit_long_tokens, 0), max(body.limit_long_days, 0))
+                             max(body.limit_long_tokens, 0), max(body.limit_long_days, 0), models)
     return _provider_payload(db.get_provider(pid))
 
 
@@ -570,6 +592,16 @@ def providers_update(pid: int, body: ProviderUpdate):
         fields["name"] = fields["name"].strip()
     if "native_features" in fields:
         fields["native_features"] = 1 if fields["native_features"] else 0
+    # Modèles + cohérence du modèle par défaut.
+    cur = db.get_provider(pid)
+    models = _clean_models(body.models) if body.models is not None else json.loads(cur["models"] or "[]")
+    default_model = (body.default_model.strip() if body.default_model is not None else cur["default_model"]) \
+        or (models[0] if models else "")
+    if default_model and default_model not in models:
+        models.insert(0, default_model)
+    if body.models is not None or "default_model" in fields:
+        fields["models"] = json.dumps(models)
+        fields["default_model"] = default_model
     if fields:
         db.update_provider(pid, **fields)
     return _provider_payload(db.get_provider(pid))
