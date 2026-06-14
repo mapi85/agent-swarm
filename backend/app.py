@@ -44,6 +44,7 @@ class AgentCreate(BaseModel):
     max_iterations: int = config.DEFAULT_MAX_ITERATIONS
     session_token_budget: int = config.DEFAULT_SESSION_TOKEN_BUDGET
     provider_id: int | None = None
+    category: str = ""
 
 
 class AgentUpdate(BaseModel):
@@ -55,6 +56,7 @@ class AgentUpdate(BaseModel):
     session_token_budget: int | None = None
     provider_id: int | None = None
     clear_provider: bool = False    # true = revenir au provider par défaut
+    category: str | None = None
 
 
 class TaskCreate(BaseModel):
@@ -167,7 +169,8 @@ def agents_create(body: AgentCreate):
         raise HTTPException(400, "Provider inconnu.")
     agent_id = db.create_agent(body.name, body.description, body.mission_prompt,
                                body.model, body.effort, body.max_iterations,
-                               body.session_token_budget, body.provider_id)
+                               body.session_token_budget, body.provider_id,
+                               body.category.strip())
     runtime.agent_workdir(db.get_agent(agent_id))
     return db.get_agent(agent_id)
 
@@ -188,6 +191,8 @@ def agents_update(agent_id: int, body: AgentUpdate):
         raise HTTPException(400, "Provider inconnu.")
     fields = {k: v for k, v in body.model_dump().items()
               if v is not None and k != "clear_provider"}
+    if "category" in fields:
+        fields["category"] = fields["category"].strip()
     if body.clear_provider:
         fields["provider_id"] = None
     if fields:
@@ -572,16 +577,22 @@ def providers_delete(pid: int):
 # ---------------------------------------------------------------------------
 
 @app.get("/api/stats/tokens")
-def stats_tokens():
+def stats_tokens(days: int = 30):
+    summary = db.tokens_summary()
     return {
-        "total": {
-            "input_tokens": db.query_one("SELECT COALESCE(SUM(input_tokens),0) AS c FROM sessions")["c"],
-            "output_tokens": db.query_one("SELECT COALESCE(SUM(output_tokens),0) AS c FROM sessions")["c"],
-        },
+        "total": {"input_tokens": summary["input_tokens"], "output_tokens": summary["output_tokens"]},
+        "summary": summary,
         "by_agent": db.tokens_by_agent(),
         "by_provider": db.tokens_by_provider(),
         "by_project": db.tokens_by_project(),
+        "by_category": db.tokens_by_category(),
+        "by_day": list(reversed(db.tokens_by_day(days))),   # ancien → récent
     }
+
+
+@app.get("/api/categories")
+def agents_categories():
+    return db.agent_categories()
 
 
 # ---------------------------------------------------------------------------

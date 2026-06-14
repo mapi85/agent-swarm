@@ -61,6 +61,11 @@
   table.stats-t th{text-align:left;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding:7px 12px;border-bottom:1px solid var(--border)}
   table.stats-t td{padding:6px 12px;border-bottom:1px solid var(--panel2)}
   table.stats-t td.num,table.stats-t th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .bars{display:flex;align-items:flex-end;gap:4px;height:140px;padding:14px;overflow-x:auto}
+  .bar{flex:1;min-width:18px;display:flex;flex-direction:column;align-items:center;height:100%;justify-content:flex-end;gap:4px}
+  .bar-fill{width:100%;max-width:34px;background:linear-gradient(var(--accent),#6f9bf2);border-radius:4px 4px 0 0;transition:height .2s}
+  .bar:hover .bar-fill{background:linear-gradient(#1f5fe0,var(--accent))}
+  .bar-lbl{font-size:9.5px;color:var(--muted);white-space:nowrap;transform:rotate(-45deg);transform-origin:center;height:14px}
   .agent-strip{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px}
   .astate{display:flex;align-items:center;gap:7px;background:var(--panel);border:1px solid var(--border);border-radius:18px;padding:5px 12px;font-size:12.5px;cursor:pointer;box-shadow:var(--shadow)}
   .astate:hover{border-color:var(--accent)}
@@ -82,6 +87,14 @@
   #view-super.active{display:grid}
   #agents-col{border-right:1px solid var(--border);overflow-y:auto;padding:14px;background:var(--panel)}
   #agents-col h2,.section-h{font-size:11.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:6px 0 10px;font-weight:650}
+  details.cat{margin-bottom:10px}
+  details.cat>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;background:var(--panel2);border:1px solid var(--border);margin-bottom:8px}
+  details.cat>summary::-webkit-details-marker{display:none}
+  details.cat>summary::before{content:'▸';color:var(--muted);font-size:11px;transition:.15s;flex:none}
+  details.cat[open]>summary::before{transform:rotate(90deg)}
+  details.cat>summary:hover{border-color:var(--accent)}
+  .cat-name{font-weight:650;font-size:12.5px}
+  .cat-count{margin-left:auto;color:var(--muted);font-size:11px}
   .agent-card{background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:10px 12px;margin-bottom:10px;cursor:pointer;transition:.15s;box-shadow:var(--shadow)}
   .agent-card:hover{border-color:var(--accent)}
   .agent-card.selected{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
@@ -105,6 +118,9 @@
   details.panel>summary::before{content:'▸';font-size:10px;transition:.15s}
   details.panel[open]>summary::before{transform:rotate(90deg)}
   details.panel[open]>summary{border-bottom:1px solid var(--border)}
+  .hd-toggle{margin-left:auto;display:inline-flex;align-items:center;gap:5px;text-transform:none;letter-spacing:0;font-weight:400;font-size:11px;cursor:pointer}
+  .hd-toggle input{width:auto;margin:0}
+  details.panel>summary{justify-content:flex-start}
   .session-item,.task-item{padding:9px 14px;border-bottom:1px solid var(--border);cursor:pointer;font-size:13px}
   .session-item:last-child,.task-item:last-child{border-bottom:0}
   .session-item:hover{background:var(--panel2)}
@@ -237,17 +253,45 @@
   .md-body hr{border:0;border-top:1px solid var(--border);margin:13px 0}
   .md-compact{padding:0}
   .md-compact>:first-child{margin-top:0} .md-compact>:last-child{margin-bottom:0}
+  /* tables de stats : défilement horizontal si trop étroit */
+  #dash-tok-agent,#dash-tok-category,#dash-tok-provider,#dash-tok-project{overflow-x:auto}
   /* ===== Responsive ===== */
   @media(max-width:900px){
     header{padding:8px 10px;gap:8px}
     header h1 .htxt{display:none}
     #view-super.active{display:block;height:auto}
-    #agents-col{border-right:0;border-bottom:1px solid var(--border);max-height:42vh}
+    #agents-col{border-right:0;border-bottom:1px solid var(--border);max-height:46vh;overflow-y:auto}
     #detail{padding:14px}
     .cols{grid-template-columns:1fr}
     .page{padding:14px}
-    #events{max-height:48vh}
+    #events{max-height:none}
     .kpi .kv{font-size:19px}
+  }
+  @media(max-width:560px){
+    body{font-size:13.5px}
+    header{flex-wrap:wrap;gap:6px;padding:7px 9px}
+    header h1{font-size:15px}
+    nav{order:3;width:100%;gap:2px}
+    nav button{padding:6px 9px;font-size:12.5px}
+    .bellwrap{margin-left:auto}
+    .kpis{grid-template-columns:1fr 1fr;gap:8px}
+    .kpi{padding:10px 12px}
+    .kpi .kv{font-size:18px}
+    .dash-grid{grid-template-columns:1fr}
+    .page{padding:11px}
+    .page h2{font-size:18px}
+    #detail{padding:11px}
+    .detail-head h2{font-size:17px}
+    .actions{gap:6px}
+    .actions button{flex:1 1 auto}
+    .toolbar{gap:7px}
+    .toolbar input[type=search]{min-width:0;flex:1 1 100%}
+    .toolbar select{flex:1 1 auto}
+    #agents-col{max-height:48vh;overflow-y:auto}
+    #notif-panel{width:auto;left:8px;right:8px;top:auto}
+    dialog{padding:16px 15px;border-radius:11px 11px 0 0;width:100vw;max-width:100vw;max-height:92vh;overflow-y:auto;margin:auto 0 0;position:fixed;bottom:0;left:0}
+    .bars{height:120px}
+    .md-body{padding:12px 13px}
   }
 </style>
 </head>
@@ -289,8 +333,13 @@
     <div class="kpis" id="dash-kpis"></div>
     <div class="section-h">État des agents</div>
     <div class="agent-strip" id="dash-agents"></div>
+    <div class="section-h">Consommation de tokens — synthèse</div>
+    <div class="kpis" id="dash-tok-summary"></div>
+    <div class="panel" style="margin-bottom:18px"><h3>Consommation par jour (30 derniers jours actifs)</h3>
+      <div id="dash-tok-day"></div></div>
     <div class="dash-grid">
       <div class="panel"><h3>Tokens par agent</h3><div id="dash-tok-agent"></div></div>
+      <div class="panel"><h3>Tokens par thème</h3><div id="dash-tok-category"></div></div>
       <div class="panel"><h3>Tokens par provider</h3><div id="dash-tok-provider"></div></div>
       <div class="panel"><h3>Tokens par mission</h3><div id="dash-tok-project"></div></div>
     </div>
@@ -301,8 +350,10 @@
 <div id="view-super" class="view">
   <div id="agents-col">
     <button class="full" onclick="openAgentDlg(null)">+ Nouvel agent</button>
-    <h2 style="margin-top:14px">Agents</h2>
-    <div id="agent-list"></div>
+    <input type="search" id="ag-search" placeholder="Rechercher un agent…" oninput="renderAgentList()" style="margin-top:10px">
+    <label style="display:flex;align-items:center;font-weight:400;color:var(--muted);margin:8px 0 4px">
+      <input type="checkbox" id="ag-active" onchange="renderAgentList()" style="width:auto;margin-right:6px">Agents actifs seulement</label>
+    <div id="agent-list" style="margin-top:6px"></div>
   </div>
   <div id="detail"><div class="placeholder">Sélectionne un agent pour le superviser.</div></div>
 </div>
@@ -399,6 +450,9 @@
   <h3 id="dlgAgent-title">Créer un agent</h3>
   <label>Nom (unique)</label><input id="f-name" placeholder="ex. veilleur-techno">
   <label>Description courte (visible des autres agents)</label><input id="f-desc" placeholder="ex. Veille technologique IA quotidienne">
+  <label>Thème (regroupement, optionnel)</label>
+  <input id="f-category" list="category-suggestions" placeholder="ex. Veille · Finance · Support…">
+  <datalist id="category-suggestions"></datalist>
   <label>Mission (prompt générique)</label>
   <textarea id="f-mission" rows="6" placeholder="Mission permanente, périmètre, livrables attendus…"></textarea>
   <label>Provider LLM</label>
@@ -502,6 +556,7 @@ const $ = s => document.querySelector(s);
 let agents = [], projects = [], providersList = [], resources = [], artifacts = [];
 let selectedAgent = null, selectedSession = null, lastEventId = 0;
 let curView = 'dash', editingAgentId = null, editingProviderId = null, overview = {};
+let hidePastSessions = false;
 // État d'ouverture des tuiles rétractables (préservé lors des rafraîchissements périodiques)
 const openTasks = new Set(), projState = new Map();
 function trackOpen(set, el, id){ if(el.open) set.add(id); else set.delete(id); }
@@ -624,12 +679,32 @@ async function loadDash(){
         <span class="dot ${a.state}"></span><b>${esc(a.name)}</b>
         <span class="state-pill ${a.state}">${STATE_LABEL[a.state]||a.state}</span>
       </div>`).join('') || '<div class="empty">Aucun agent.</div>';
+    // Synthèse de consommation (totaux, moyennes, extrêmes)
+    const sm = stats.summary || {};
+    $('#dash-tok-summary').innerHTML = `
+      <div class="kpi"><div class="kv">${fmtTok(sm.total||0)}</div><div class="kl">tokens au total (in+out)</div></div>
+      <div class="kpi"><div class="kv">${sm.sessions||0}</div><div class="kl">sessions facturées${sm.completed_sessions?` · ${sm.completed_sessions} terminées`:''}</div></div>
+      <div class="kpi"><div class="kv">${fmtTok(sm.avg_session||0)}</div><div class="kl">moyenne / session</div></div>
+      <div class="kpi"><div class="kv">${fmtTok(sm.max_session||0)}</div><div class="kl">session la plus lourde</div></div>`;
+    // Graphe par jour
+    const days = stats.by_day || [];
+    if (days.length){
+      const maxd = Math.max(...days.map(d=>d.input_tokens+d.output_tokens), 1);
+      $('#dash-tok-day').innerHTML = `<div class="bars">` + days.map(d=>{
+        const tot = d.input_tokens + d.output_tokens;
+        const h = Math.round(100*tot/maxd);
+        return `<div class="bar" title="${d.day} · ${fmtTok(tot)} tok · ${d.sessions} session(s)">
+          <div class="bar-fill" style="height:${Math.max(h,2)}%"></div>
+          <div class="bar-lbl">${d.day.slice(5)}</div></div>`;
+      }).join('') + `</div>`;
+    } else $('#dash-tok-day').innerHTML = '<div class="empty">Aucune session datée.</div>';
     const tokTable = (rows, label, cols) => rows.length ? `
       <table class="stats-t"><tr><th>${label}</th><th class="num">in</th><th class="num">out</th>${cols?'<th class="num">sessions</th>':''}</tr>
       ${rows.map(r=>`<tr><td>${esc(r._label)}</td><td class="num">${fmtTok(r.input_tokens)}</td>
         <td class="num">${fmtTok(r.output_tokens)}</td>${cols?`<td class="num">${r.sessions}</td>`:''}</tr>`).join('')}</table>`
       : '<div class="empty">Aucune donnée.</div>';
-    $('#dash-tok-agent').innerHTML = tokTable(stats.by_agent.map(r=>({...r,_label:r.name})), 'Agent', true);
+    $('#dash-tok-agent').innerHTML = tokTable(stats.by_agent.filter(r=>r.input_tokens||r.output_tokens).map(r=>({...r,_label:r.name})), 'Agent', true);
+    $('#dash-tok-category').innerHTML = tokTable((stats.by_category||[]).map(r=>({...r,_label:r.category})), 'Thème', true);
     $('#dash-tok-provider').innerHTML = tokTable(stats.by_provider.map(r=>({...r,_label:r.provider})), 'Provider', true);
     $('#dash-tok-project').innerHTML = tokTable(
       stats.by_project.filter(r=>r.input_tokens||r.output_tokens).map(r=>({...r,_label:`#${r.id} ${r.title}`})), 'Mission', false);
@@ -639,18 +714,54 @@ async function loadDash(){
 function gotoAgent(id){ showView('super'); selectAgent(id); }
 
 /* ---------- supervision ---------- */
+const AGENT_ACTIVE = new Set(['running','awaiting','scheduled']);
+const catState = new Map();   // état déplié/replié des blocs thème
+function trackCat(el, name){ catState.set(name, el.open); }
+
+function agentCardHtml(a){
+  return `<div class="agent-card ${selectedAgent?.id===a.id?'selected':''}" onclick="selectAgent(${a.id})">
+    <div class="row1"><span class="dot ${a.state}"></span><span class="name">${esc(a.name)}</span>
+      ${a.awaiting ? `<span class="badge" style="background:#efe7fb;color:var(--purple)">❓ ${a.awaiting}</span>`
+        : a.pending_tasks ? `<span class="badge tasks">${a.pending_tasks} tâche(s)</span>` : ''}</div>
+    <div class="desc">${esc(a.description)}</div>
+    <div class="meta">${a.state==='awaiting' ? STATE_LABEL.awaiting
+      : a.current_session ? '▶ session n°'+a.current_session.number+' en cours'
+      : a.next_session ? '⏱ prochaine : '+fmtTs(a.next_session.scheduled_at)
+      : STATE_LABEL[a.state]||a.state}</div>
+  </div>`;
+}
 function renderAgentList() {
-  $('#agent-list').innerHTML = agents.map(a => `
-    <div class="agent-card ${selectedAgent?.id===a.id?'selected':''}" onclick="selectAgent(${a.id})">
-      <div class="row1"><span class="dot ${a.state}"></span><span class="name">${esc(a.name)}</span>
-        ${a.awaiting ? `<span class="badge" style="background:#efe7fb;color:var(--purple)">❓ ${a.awaiting}</span>`
-          : a.pending_tasks ? `<span class="badge tasks">${a.pending_tasks} tâche(s)</span>` : ''}</div>
-      <div class="desc">${esc(a.description)}</div>
-      <div class="meta">${a.state==='awaiting' ? STATE_LABEL.awaiting
-        : a.current_session ? '▶ session n°'+a.current_session.number+' en cours'
-        : a.next_session ? '⏱ prochaine : '+fmtTs(a.next_session.scheduled_at)
-        : STATE_LABEL[a.state]||a.state}</div>
-    </div>`).join('') || '<div style="color:var(--muted)">Aucun agent. Crée le premier !</div>';
+  const q = ($('#ag-search')?.value || '').toLowerCase();
+  const activeOnly = $('#ag-active')?.checked;
+  let list = agents.filter(a =>
+    (!activeOnly || AGENT_ACTIVE.has(a.state) || a.pending_tasks) &&
+    (a.name + ' ' + a.description + ' ' + (a.category||'')).toLowerCase().includes(q));
+  if (!list.length){
+    $('#agent-list').innerHTML = agents.length
+      ? '<div class="empty">Aucun agent ne correspond.</div>'
+      : '<div style="color:var(--muted)">Aucun agent. Crée le premier !</div>';
+    return;
+  }
+  // regroupement par thème (catégorie vide = « Sans thème »)
+  const groups = new Map();
+  for (const a of list){ const k = a.category || ''; (groups.get(k) || groups.set(k, []).get(k)).push(a); }
+  const names = [...groups.keys()].sort((a,b)=> a===''?1 : b===''?-1 : a.localeCompare(b));
+  // un seul groupe « sans thème » et aucune catégorie définie → liste simple, pas de bloc
+  if (names.length === 1 && names[0] === ''){
+    $('#agent-list').innerHTML = groups.get('').map(agentCardHtml).join('');
+    return;
+  }
+  $('#agent-list').innerHTML = names.map(name=>{
+    const items = groups.get(name);
+    const label = name || 'Sans thème';
+    const nbActive = items.filter(a=>AGENT_ACTIVE.has(a.state)).length;
+    const open = catState.has(label) ? catState.get(label) : true;
+    return `<details class="cat" ${open?'open':''} ontoggle="trackCat(this,${esc(JSON.stringify(label))})">
+      <summary><span class="cat-name">${esc(label)}</span>
+        <span class="cat-count">${items.length}${nbActive?` · ${nbActive} actif(s)`:''}</span></summary>
+      <div class="cat-body">${items.map(agentCardHtml).join('')}</div>
+    </details>`;
+  }).join('');
 }
 
 async function selectAgent(id) {
@@ -669,7 +780,9 @@ async function selectAgent(id) {
     </div>
     <div class="cols">
       <div>
-        <details class="panel" open><summary>Sessions</summary><div id="d-sessions"></div></details>
+        <details class="panel" open><summary>Sessions
+          <label class="hd-toggle" onclick="event.stopPropagation()"><input type="checkbox" id="s-hidepast" ${hidePastSessions?'checked':''} onchange="toggleHidePast()">masquer les passées</label>
+          </summary><div id="d-sessions"></div></details>
         <details class="panel" open style="margin-top:14px"><summary>Tâches</summary><div id="d-tasks"></div></details>
         <details class="panel" style="margin-top:14px"><summary>Services</summary><div id="d-services"></div></details>
       </div>
@@ -685,6 +798,7 @@ async function selectAgent(id) {
 function renderDetailHead() {
   const a = selectedAgent;
   $('#d-head').innerHTML = `<h2>${esc(a.name)}</h2><span class="state-pill ${a.state}">${STATE_LABEL[a.state]||a.state}</span>
+    ${a.category?`<span class="chip">🏷 ${esc(a.category)}</span>`:''}
     <span style="color:var(--muted);font-size:12px">${esc(a.model)} · effort ${esc(a.effort)}`
     + (a.provider_name ? ` · provider ${esc(a.provider_name)}${a.provider_id?'':' (défaut)'}` : '')
     + (a.session_token_budget ? ` · budget ${fmtTok(a.session_token_budget)} tok/session` : '')
@@ -697,11 +811,14 @@ function renderDetailHead() {
 
 async function refreshLists() {
   if (!selectedAgent) return;
-  const [sessions, tasks, services] = await Promise.all([
+  const [allSessions, tasks, services] = await Promise.all([
     api(`/api/agents/${selectedAgent.id}/sessions`), api(`/api/agents/${selectedAgent.id}/tasks`),
     api(`/api/agents/${selectedAgent.id}/services`)]);
+  const PAST = new Set(['completed','failed','interrupted']);
+  const sessions = hidePastSessions ? allSessions.filter(s=>!PAST.has(s.status) || s.id===selectedSession?.id) : allSessions;
+  const hiddenCount = allSessions.length - sessions.length;
   $('#d-sessions').innerHTML = sessions.map(s => `
-    <div class="session-item ${selectedSession?.id===s.id?'selected':''}" onclick="selectSession(${s.id})">
+    <div class="session-item ${selectedSession?.id===s.id?'selected':''}" onclick="selectSession(${s.id}, '${s.status}')">
       <div><span class="st ${s.status}">n°${s.number} · ${s.status}</span>
         ${s.status==='running' ? `<button class="small danger" style="float:right" onclick="event.stopPropagation();act('/api/sessions/${s.id}/interrupt')">Stop</button>`:''}
         ${s.status==='planned' ? `<span style="float:right;display:inline-flex;gap:6px">
@@ -710,7 +827,9 @@ async function refreshLists() {
       <div class="obj">${esc(s.objective)}</div>
       <div class="sub">${s.status==='planned' ? '⏱ '+fmtTs(s.scheduled_at) : fmtTs(s.started_at)}
         ${s.input_tokens ? ' · '+fmtTok(s.input_tokens)+'/'+fmtTok(s.output_tokens)+' tok' : ''}${s.provider?' · '+esc(s.provider):''}${s.user_note?' · 📝 note':''}</div>
-    </div>`).join('') || '<div class="session-item" style="cursor:default;color:var(--muted)">Aucune session.</div>';
+    </div>`).join('')
+    + (hiddenCount ? `<div class="session-item" style="cursor:default;color:var(--muted);text-align:center">${hiddenCount} session(s) passée(s) masquée(s)</div>` : '')
+    || '<div class="session-item" style="cursor:default;color:var(--muted)">Aucune session.</div>';
   $('#d-tasks').innerHTML = tasks.map(t => `
     <details class="titem" ${openTasks.has(t.id)?'open':''} ontoggle="trackOpen(openTasks,this,${t.id})">
       <summary><span class="st ${t.status}">#${t.id} · ${t.status}</span>
@@ -729,14 +848,31 @@ async function refreshLists() {
   if (selectedSession) await pollEvents();
 }
 
-async function selectSession(id) {
-  selectedSession = {id}; lastEventId = 0;
+async function selectSession(id, status) {
+  selectedSession = {id, planned: status==='planned'}; lastEventId = 0;
   $('#events').innerHTML = ''; $('#d-report').style.display='none';
   await pollEvents(); await refreshLists();
 }
 
 async function pollEvents() {
   if (!selectedSession) return;
+  // Une session planifiée n'a pas encore de flux : on présente son objectif et son échéance.
+  if (selectedSession.planned){
+    const session = await api(`/api/sessions/${selectedSession.id}`);
+    if (session.status !== 'planned'){ selectedSession.planned = false; return pollEvents(); }
+    $('#ev-title').textContent = `Session n°${session.number} (planifiée)`;
+    $('#d-report').style.display = 'none';
+    $('#events').innerHTML = `<div style="padding:10px 14px">
+      <div class="report-h" style="padding:0 0 6px">🎯 Objectif de la session planifiée</div>
+      ${md(session.objective)}
+      <div class="sub" style="margin-top:10px">⏱ Démarrage prévu : ${fmtTs(session.scheduled_at)}</div>
+      ${session.user_note?`<div class="report-h" style="padding:12px 0 4px">📝 Note de l'utilisateur</div>${md(session.user_note)}`:''}
+      <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="small" onclick="openRunNow(${session.id})">▶ Lancer maintenant</button>
+        <button class="small danger" onclick="cancelSession(${session.id})">✕ Annuler</button></div>
+    </div>`;
+    return;
+  }
   const [session, events] = await Promise.all([
     api(`/api/sessions/${selectedSession.id}`), api(`/api/sessions/${selectedSession.id}/events?after=${lastEventId}`)]);
   $('#ev-title').textContent = `Flux — session n°${session.number} (${session.status})`;
@@ -759,6 +895,8 @@ async function pollEvents() {
       + (session.next_objective ? `<div class="report-next">➡ Prochaine : ${esc(session.next_objective)}</div>` : '');
   }
 }
+
+function toggleHidePast(){ hidePastSessions = $('#s-hidepast').checked; refreshLists(); }
 
 async function act(url) { try { await api(url, {method:'POST', body:'{}'}); await refresh(); } catch(e){ alert(e.message); } }
 
@@ -800,10 +938,13 @@ async function openAgentDlg(agent){
   await loadProviders(true);
   $('#f-provider').innerHTML = '<option value="">— Provider par défaut —</option>' +
     providersList.map(p=>`<option value="${p.id}">${esc(p.name)} (${p.ptype})${p.is_default?' · défaut':''}</option>`).join('');
+  const cats = [...new Set(agents.map(a=>a.category).filter(Boolean))].sort();
+  $('#category-suggestions').innerHTML = cats.map(c=>`<option value="${esc(c)}">`).join('');
   $('#dlgAgent-title').textContent = agent ? `Modifier l'agent ${agent.name}` : 'Créer un agent';
   $('#dlgAgent-save').textContent = agent ? 'Enregistrer' : 'Créer';
   $('#f-name').value = agent?.name || ''; $('#f-name').disabled = !!agent;
   $('#f-desc').value = agent?.description || '';
+  $('#f-category').value = agent?.category || '';
   $('#f-mission').value = agent?.mission_prompt || '';
   $('#f-provider').value = agent?.provider_id || '';
   $('#f-model').value = agent?.model || 'claude-opus-4-8';
@@ -816,6 +957,7 @@ async function saveAgent() {
   const provider_id = $('#f-provider').value ? +$('#f-provider').value : null;
   const body = {
     description:$('#f-desc').value.trim(), mission_prompt:$('#f-mission').value.trim(),
+    category:$('#f-category').value.trim(),
     model:$('#f-model').value.trim(), effort:$('#f-effort').value,
     max_iterations:+$('#f-iter').value||60, session_token_budget:+$('#f-budget').value||0};
   try {

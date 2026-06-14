@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS agents (
     model       TEXT NOT NULL,
     effort      TEXT NOT NULL DEFAULT 'high',
     status      TEXT NOT NULL DEFAULT 'idle',          -- idle | running | paused
+    category    TEXT NOT NULL DEFAULT '',              -- thème de regroupement (libre)
     max_iterations INTEGER NOT NULL DEFAULT 60,
     session_token_budget INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT NOT NULL
@@ -181,6 +182,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE agents ADD COLUMN session_token_budget INTEGER NOT NULL DEFAULT 0")
     if "provider_id" not in acols:
         conn.execute("ALTER TABLE agents ADD COLUMN provider_id INTEGER")
+    if "category" not in acols:
+        conn.execute("ALTER TABLE agents ADD COLUMN category TEXT NOT NULL DEFAULT ''")
     scols = {r["name"] for r in conn.execute("PRAGMA table_info(sessions)")}
     if "user_note" not in scols:
         conn.execute("ALTER TABLE sessions ADD COLUMN user_note TEXT")
@@ -247,12 +250,12 @@ def execute(sql: str, params: tuple = ()) -> int:
 # ---------- Agents ----------
 
 def create_agent(name, description, mission_prompt, model, effort, max_iterations,
-                 session_token_budget=0, provider_id=None) -> int:
+                 session_token_budget=0, provider_id=None, category="") -> int:
     return execute(
         "INSERT INTO agents (name, description, mission_prompt, model, effort, max_iterations, "
-        "session_token_budget, provider_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "session_token_budget, provider_id, category, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (name, description, mission_prompt, model, effort, max_iterations, session_token_budget,
-         provider_id, now()),
+         provider_id, category, now()),
     )
 
 
@@ -502,6 +505,46 @@ def tokens_by_project() -> list[dict]:
 def add_task_tokens(task_id: int, input_tokens: int, output_tokens: int) -> None:
     execute("UPDATE tasks SET input_tokens = input_tokens + ?, output_tokens = output_tokens + ? "
             "WHERE id = ?", (input_tokens, output_tokens, task_id))
+
+
+def tokens_summary() -> dict:
+    """Totaux, moyennes et extrêmes sur les sessions ayant consommé des tokens."""
+    row = query_one(
+        "SELECT COUNT(*) AS sessions, COALESCE(SUM(input_tokens),0) AS input_tokens, "
+        "COALESCE(SUM(output_tokens),0) AS output_tokens, "
+        "COALESCE(MAX(input_tokens + output_tokens),0) AS max_session "
+        "FROM sessions WHERE input_tokens + output_tokens > 0")
+    completed = query_one(
+        "SELECT COUNT(*) AS c FROM sessions WHERE status = 'completed'")["c"]
+    total = row["input_tokens"] + row["output_tokens"]
+    row["total"] = total
+    row["avg_session"] = round(total / row["sessions"]) if row["sessions"] else 0
+    row["completed_sessions"] = completed
+    return row
+
+
+def tokens_by_day(days: int = 30) -> list[dict]:
+    """Consommation agrégée par jour (sur la date de démarrage des sessions)."""
+    return query(
+        "SELECT substr(started_at, 1, 10) AS day, SUM(input_tokens) AS input_tokens, "
+        "SUM(output_tokens) AS output_tokens, COUNT(*) AS sessions "
+        "FROM sessions WHERE started_at IS NOT NULL AND input_tokens + output_tokens > 0 "
+        "GROUP BY day ORDER BY day DESC LIMIT ?", (days,))
+
+
+def tokens_by_category() -> list[dict]:
+    """Consommation agrégée par thème d'agent."""
+    return query(
+        "SELECT CASE WHEN a.category = '' THEN '(sans thème)' ELSE a.category END AS category, "
+        "COALESCE(SUM(s.input_tokens),0) AS input_tokens, COALESCE(SUM(s.output_tokens),0) AS output_tokens, "
+        "COUNT(s.id) AS sessions FROM agents a LEFT JOIN sessions s ON s.agent_id = a.id "
+        "GROUP BY a.category HAVING input_tokens + output_tokens > 0 "
+        "ORDER BY input_tokens + output_tokens DESC")
+
+
+def agent_categories() -> list[str]:
+    rows = query("SELECT DISTINCT category FROM agents WHERE category != '' ORDER BY category")
+    return [r["category"] for r in rows]
 
 
 # ---------- Notifications / sollicitations ----------
