@@ -3,6 +3,7 @@ import asyncio
 import json
 import re
 import smtplib
+from datetime import datetime, timezone
 from email.mime.text import MIMEText
 from pathlib import Path
 
@@ -47,6 +48,24 @@ def tool_definitions(*, include_server: bool = True) -> list[dict]:
                 "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
                 "required": ["path", "content"],
             },
+        },
+        {
+            "name": "list_artifacts",
+            "description": ("Liste les fichiers de ton espace de travail (deliverables/, library/, memory/) avec "
+                            "leur taille et date de modification. Utile pour faire le point sur tes artefacts, "
+                            "notamment avant de clore une session, et repérer ceux à nettoyer."),
+            "input_schema": {
+                "type": "object",
+                "properties": {"subdir": {"type": "string",
+                                          "description": "Sous-dossier à lister (optionnel) : deliverables, library ou memory"}},
+            },
+        },
+        {
+            "name": "delete_file",
+            "description": ("Supprime un fichier de ton espace de travail (chemin relatif à ton workdir ou absolu "
+                            "À L'INTÉRIEUR de celui-ci). Sert à faire le ménage : supprime les artefacts dépréciés, "
+                            "dépassés, en doublon ou inutiles pour ne pas encombrer tes répertoires."),
+            "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
         },
         # ---- Mémoire structurée persistante ----
         {
@@ -235,10 +254,12 @@ def tool_definitions(*, include_server: bool = True) -> list[dict]:
         },
         {
             "name": "finish_session",
-            "description": ("OBLIGATOIRE pour clore ta session. Fournis le rapport de mission, les livrables, "
-                            "l'objectif de la prochaine session et son échéance (next_run_minutes). Si certaines "
-                            "tâches confiées ne sont PAS terminées (tu comptes les poursuivre à la prochaine "
-                            "session), liste leurs ids dans unfinished_task_ids pour qu'elles restent ouvertes."),
+            "description": ("OBLIGATOIRE pour clore ta session. Avant d'appeler cet outil, fais le ménage de tes "
+                            "artefacts (list_artifacts puis delete_file sur les fichiers obsolètes/inutiles). "
+                            "Fournis le rapport de mission, les livrables, l'objectif de la prochaine session et "
+                            "son échéance (next_run_minutes). Si certaines tâches confiées ne sont PAS terminées "
+                            "(tu comptes les poursuivre à la prochaine session), liste leurs ids dans "
+                            "unfinished_task_ids pour qu'elles restent ouvertes."),
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -277,6 +298,28 @@ def _truncate(text: str) -> str:
 def _resolve(workdir: Path, path: str) -> Path:
     p = Path(path)
     return p if p.is_absolute() else (workdir / p)
+
+
+def _list_artifacts(workdir: Path, subdir: str | None = None) -> str:
+    base = workdir / subdir if subdir else workdir
+    base = base.resolve()
+    wd = workdir.resolve()
+    if wd != base and wd not in base.parents:
+        return "[erreur] Sous-dossier hors de ton espace de travail."
+    if not base.exists():
+        return f"(aucun fichier dans {subdir or 'ton espace de travail'})"
+    rows = []
+    for p in sorted(base.rglob("*")):
+        if p.is_file():
+            st = p.stat()
+            when = datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(timespec="minutes")
+            rows.append((p.relative_to(wd).as_posix(), st.st_size, when))
+    if not rows:
+        return f"(aucun fichier dans {subdir or 'ton espace de travail'})"
+    total = sum(r[1] for r in rows)
+    lines = [f"{len(rows)} fichier(s), {total} octets au total :"]
+    lines += [f"- {path} ({size} o, modifié {when})" for path, size, when in rows]
+    return "\n".join(lines)
 
 
 def _shell_denied(command: str) -> str | None:
@@ -418,6 +461,21 @@ async def execute_tool(name, tool_input, *, agent, workdir, session_id, cancelle
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(tool_input["content"], encoding="utf-8")
             return f"Fichier écrit : {p} ({len(tool_input['content'])} caractères).", False
+
+        if name == "list_artifacts":
+            return _list_artifacts(workdir, tool_input.get("subdir")), False
+
+        if name == "delete_file":
+            p = _resolve(workdir, tool_input["path"]).resolve()
+            wd = workdir.resolve()
+            if wd != p and wd not in p.parents:
+                return "[erreur] Suppression refusée : le fichier est hors de ton espace de travail.", True
+            if not p.exists():
+                return f"[erreur] Fichier introuvable : {p}", True
+            if p.is_dir():
+                return "[erreur] delete_file ne supprime que des fichiers (pas des dossiers).", True
+            p.unlink()
+            return f"Fichier supprimé : {p.relative_to(wd).as_posix()}.", False
 
         # ---- Mémoire ----
         if name == "memory_set":

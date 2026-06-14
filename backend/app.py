@@ -98,6 +98,10 @@ class ProviderCreate(BaseModel):
     default_model: str = ""
     native_features: bool = True
     is_default: bool = False
+    limit_short_tokens: int = 0
+    limit_short_hours: int = 0
+    limit_long_tokens: int = 0
+    limit_long_days: int = 0
 
 
 class ProviderUpdate(BaseModel):
@@ -107,6 +111,10 @@ class ProviderUpdate(BaseModel):
     api_key: str | None = None                # None = inchangée
     default_model: str | None = None
     native_features: bool | None = None
+    limit_short_tokens: int | None = None
+    limit_short_hours: int | None = None
+    limit_long_tokens: int | None = None
+    limit_long_days: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -512,6 +520,19 @@ def _provider_payload(p: dict) -> dict:
     out = {k: v for k, v in p.items() if k != "api_key"}
     out["api_key_set"] = bool(p["api_key"])
     out["agents_count"] = db.provider_in_use(p["id"])
+    # Taux de consommation sur les fenêtres glissantes configurées.
+    usage = {}
+    if p["limit_short_tokens"] and p["limit_short_hours"]:
+        used = db.provider_usage(p["name"], p["limit_short_hours"])
+        usage["short"] = {"used": used, "limit": p["limit_short_tokens"],
+                          "hours": p["limit_short_hours"],
+                          "pct": round(100 * used / p["limit_short_tokens"])}
+    if p["limit_long_tokens"] and p["limit_long_days"]:
+        used = db.provider_usage(p["name"], p["limit_long_days"] * 24)
+        usage["long"] = {"used": used, "limit": p["limit_long_tokens"],
+                         "days": p["limit_long_days"],
+                         "pct": round(100 * used / p["limit_long_tokens"])}
+    out["usage"] = usage
     return out
 
 
@@ -528,7 +549,9 @@ def providers_create(body: ProviderCreate):
         raise HTTPException(409, f"Un provider nommé '{body.name}' existe déjà.")
     pid = db.create_provider(body.name.strip(), body.ptype, body.base_url.strip(),
                              body.api_key.strip(), body.default_model.strip(),
-                             body.native_features, body.is_default)
+                             body.native_features, body.is_default,
+                             max(body.limit_short_tokens, 0), max(body.limit_short_hours, 0),
+                             max(body.limit_long_tokens, 0), max(body.limit_long_days, 0))
     return _provider_payload(db.get_provider(pid))
 
 

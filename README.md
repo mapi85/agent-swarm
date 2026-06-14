@@ -26,6 +26,8 @@ Chaque agent est configurable (nom, mission générique, modèle, effort) et **1
 - **Tâches réellement terminées** : à la clôture d'une session, l'agent peut déclarer les tâches **non terminées** (`unfinished_task_ids` de `finish_session`) — elles restent ouvertes au lieu d'être marquées « done » à tort quand une session de continuation est planifiée.
 - **Handoff de délégation** : à la fin d'une tâche déléguée, l'agent qui l'a confiée **reçoit le résultat** par message.
 - **Budgets de tokens** : plafond par session (cumul in+out) configurable par agent ; au dépassement la session s'arrête proprement et alerte l'utilisateur.
+- **Limites de provider** : on peut fixer par provider des plafonds de consommation sur fenêtres glissantes (X tokens / Y heures + Z tokens / W jours) ; l'onglet Réglages affiche le **taux de consommation** (jauge used/limit) de chaque provider.
+- **Hygiène des artefacts** : avant de clore, l'agent fait l'inventaire de son espace de travail (`list_artifacts`) et **supprime les fichiers obsolètes/inutiles** (`delete_file`, borné à son workdir) pour ne pas encombrer ses répertoires.
 - **Anti-stagnation** : une session qui enchaîne trop d'erreurs d'outil ou répète le même appel à l'identique est **stoppée** et signalée (évite les boucles coûteuses).
 - **Sous-agents en contexte** (`spawn_subagent`) : fan-out rapide d'une sous-tâche bornée à un sous-agent **économique** (Haiku) qui renvoie son résultat **inline** — pour paralléliser recherche/traitement sans attendre une session future.
 - **Registre de services/ports** (`register_service`/`list_services`/`unregister_service`) : l'hôte étant partagé, les agents déclarent leurs services et vérifient les ports pour **éviter les collisions** ; visible dans le détail de l'agent.

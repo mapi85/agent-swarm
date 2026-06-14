@@ -220,6 +220,14 @@
   .prov-row .grow{flex:1;min-width:180px}
   .prov-row .pname{font-weight:650}
   .prov-row .psub{color:var(--muted);font-size:12px;word-break:break-all}
+  .gauge{margin-top:8px;max-width:380px}
+  .gauge-h{display:flex;justify-content:space-between;gap:10px;font-size:11px;color:var(--muted);margin-bottom:3px}
+  .gauge-bar{height:7px;background:var(--panel2);border:1px solid var(--border);border-radius:5px;overflow:hidden}
+  .gauge-bar > i{display:block;height:100%;border-radius:5px}
+  .gauge-bar > i.ok{background:var(--green)} .gauge-bar > i.warn{background:var(--orange)} .gauge-bar > i.crit{background:var(--red)}
+  .lim-grid{display:grid;grid-template-columns:1fr auto;gap:8px 10px;align-items:center;margin-top:4px}
+  .lim-grid > div{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:12.5px}
+  .lim-grid input{width:100%}
   .row-inline{display:flex;align-items:center;gap:8px;margin:12px 0 4px}
   .row-inline input[type=checkbox]{width:auto}
   .row-inline label{margin:0}
@@ -489,6 +497,14 @@
   <div class="row-inline" id="p-native-wrap">
     <input type="checkbox" id="p-native" checked>
     <label for="p-native">Fonctionnalités natives Anthropic (thinking adaptatif, effort, compaction, cache)</label>
+  </div>
+  <label style="margin-top:14px">Limites d'utilisation (optionnel — 0 = aucune limite)</label>
+  <div class="hint">Suit la consommation cumulée (in+out) du provider sur des fenêtres glissantes et affiche le taux.</div>
+  <div class="lim-grid">
+    <div><input id="p-lim-st" type="number" min="0" step="10000" placeholder="X tokens"></div>
+    <div>toutes les <input id="p-lim-sh" type="number" min="0" step="1" placeholder="Y"> h</div>
+    <div><input id="p-lim-lt" type="number" min="0" step="100000" placeholder="Z tokens"></div>
+    <div>tous les <input id="p-lim-ld" type="number" min="0" step="1" placeholder="W"> j</div>
   </div>
   <div class="row-inline">
     <input type="checkbox" id="p-default">
@@ -1315,11 +1331,22 @@ async function loadProviders(silent){
           ${p.default_model?' · modèle : '+esc(p.default_model):''}
           · clé : ${p.api_key_set?'définie':(p.ptype==='anthropic'?'env ANTHROPIC_API_KEY':'⚠ absente')}
           · ${p.agents_count} agent(s)</div>
+        ${usageGauge('Court terme', p.usage?.short, u=>`sur ${u.hours} h`)}
+        ${usageGauge('Long terme', p.usage?.long, u=>`sur ${u.days} j`)}
       </div>
       <button class="small secondary" onclick='openProviderDlg(${p.id})'>✎ Modifier</button>
       ${p.is_default?'':`<button class="small secondary" onclick="setDefaultProvider(${p.id})">Définir par défaut</button>`}
       <button class="small danger" onclick="delProvider(${p.id})">Supprimer</button>
     </div>`).join('') || '<div class="empty">Aucun provider.</div>';
+}
+function usageGauge(label, u, windowFn){
+  if (!u) return '';
+  const pct = Math.min(u.pct, 100);
+  const cls = u.pct >= 90 ? 'crit' : u.pct >= 70 ? 'warn' : 'ok';
+  return `<div class="gauge">
+    <div class="gauge-h"><span>${label} (${esc(windowFn(u))})</span>
+      <span>${fmtTok(u.used)} / ${fmtTok(u.limit)} · ${u.pct}%</span></div>
+    <div class="gauge-bar"><i class="${cls}" style="width:${pct}%"></i></div></div>`;
 }
 function provTypeChange(){
   const t = $('#p-type').value;
@@ -1338,6 +1365,10 @@ function openProviderDlg(id){
   $('#p-key').placeholder = p?.api_key_set ? '•••••••• (inchangée)' : 'sk-…';
   $('#p-model').value = p?.default_model || '';
   $('#p-native').checked = p ? !!p.native_features : true;
+  $('#p-lim-st').value = p?.limit_short_tokens || '';
+  $('#p-lim-sh').value = p?.limit_short_hours || '';
+  $('#p-lim-lt').value = p?.limit_long_tokens || '';
+  $('#p-lim-ld').value = p?.limit_long_days || '';
   $('#p-default').checked = p ? !!p.is_default : false;
   $('#p-default').disabled = p ? !!p.is_default : false;
   provTypeChange();
@@ -1346,7 +1377,9 @@ function openProviderDlg(id){
 async function saveProvider(){
   const body = {
     name:$('#p-name').value.trim(), ptype:$('#p-type').value, base_url:$('#p-base').value.trim(),
-    default_model:$('#p-model').value.trim(), native_features:$('#p-native').checked};
+    default_model:$('#p-model').value.trim(), native_features:$('#p-native').checked,
+    limit_short_tokens:+$('#p-lim-st').value||0, limit_short_hours:+$('#p-lim-sh').value||0,
+    limit_long_tokens:+$('#p-lim-lt').value||0, limit_long_days:+$('#p-lim-ld').value||0};
   try{
     if (editingProviderId){
       if ($('#p-key').value !== '') body.api_key = $('#p-key').value.trim();

@@ -2,7 +2,7 @@
 import json
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from . import config
 
@@ -145,6 +145,10 @@ CREATE TABLE IF NOT EXISTS providers (
     default_model   TEXT NOT NULL DEFAULT '',
     native_features INTEGER NOT NULL DEFAULT 1,          -- (anthropic) thinking/effort/compaction/cache
     is_default      INTEGER NOT NULL DEFAULT 0,
+    limit_short_tokens INTEGER NOT NULL DEFAULT 0,       -- plafond court terme (tokens)
+    limit_short_hours  INTEGER NOT NULL DEFAULT 0,       -- fenêtre court terme (heures)
+    limit_long_tokens  INTEGER NOT NULL DEFAULT 0,       -- plafond long terme (tokens)
+    limit_long_days    INTEGER NOT NULL DEFAULT 0,       -- fenêtre long terme (jours)
     created_at      TEXT NOT NULL
 );
 
@@ -187,6 +191,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
     scols = {r["name"] for r in conn.execute("PRAGMA table_info(sessions)")}
     if "user_note" not in scols:
         conn.execute("ALTER TABLE sessions ADD COLUMN user_note TEXT")
+    pcols = {r["name"] for r in conn.execute("PRAGMA table_info(providers)")}
+    for col in ("limit_short_tokens", "limit_short_hours", "limit_long_tokens", "limit_long_days"):
+        if col not in pcols:
+            conn.execute(f"ALTER TABLE providers ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
     _seed_providers(conn)
     conn.commit()
 
@@ -428,14 +436,27 @@ def set_setting(key: str, value) -> None:
 
 # ---------- Providers LLM ----------
 
-def create_provider(name, ptype, base_url, api_key, default_model, native_features, is_default=False) -> int:
+def create_provider(name, ptype, base_url, api_key, default_model, native_features, is_default=False,
+                    limit_short_tokens=0, limit_short_hours=0, limit_long_tokens=0, limit_long_days=0) -> int:
     pid = execute(
-        "INSERT INTO providers (name, ptype, base_url, api_key, default_model, native_features, is_default, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
-        (name, ptype, base_url, api_key, default_model, 1 if native_features else 0, now()))
+        "INSERT INTO providers (name, ptype, base_url, api_key, default_model, native_features, is_default, "
+        "limit_short_tokens, limit_short_hours, limit_long_tokens, limit_long_days, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)",
+        (name, ptype, base_url, api_key, default_model, 1 if native_features else 0,
+         limit_short_tokens, limit_short_hours, limit_long_tokens, limit_long_days, now()))
     if is_default:
         set_default_provider(pid)
     return pid
+
+
+def provider_usage(provider_name: str, hours: float) -> int:
+    """Total de tokens (in+out) consommés par un provider sur les `hours` dernières heures,
+    rattachés à la fin de session (à défaut, au démarrage)."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec="seconds")
+    row = query_one(
+        "SELECT COALESCE(SUM(input_tokens + output_tokens), 0) AS used FROM sessions "
+        "WHERE provider = ? AND COALESCE(ended_at, started_at) >= ?", (provider_name, cutoff))
+    return row["used"]
 
 
 def get_provider(pid: int) -> dict | None:
