@@ -465,7 +465,8 @@
   <textarea id="f-mission" rows="6" placeholder="Mission permanente, périmètre, livrables attendus…"></textarea>
   <label>Provider LLM</label>
   <select id="f-provider" onchange="onAgentProviderChange(true)"></select>
-  <label>Modèle</label>
+  <label style="display:flex;align-items:center;gap:10px">Modèle
+    <button type="button" class="small secondary" onclick="refreshAgentModels()" style="font-weight:400">🔄 Actualiser</button></label>
   <select id="f-model" onchange="onModelChange()"></select>
   <input id="f-model-custom" style="display:none;margin-top:6px" placeholder="Nom exact du modèle">
   <div class="hint" id="f-model-hint"></div>
@@ -489,9 +490,10 @@
   <label>Clé API</label>
   <input id="p-key" type="password" placeholder="sk-…">
   <div class="hint" id="p-key-hint">Pour le type Anthropic : vide = variable d'environnement ANTHROPIC_API_KEY.</div>
-  <label>Modèles proposés (un par ligne)</label>
+  <label style="display:flex;align-items:center;gap:10px">Modèles proposés (un par ligne)
+    <button type="button" class="small secondary" id="p-fetch" onclick="fetchProviderModels()" style="font-weight:400">🔄 Récupérer depuis l'API</button></label>
   <textarea id="p-models" rows="3" oninput="syncProviderModelList()" placeholder="claude-opus-4-8&#10;claude-sonnet-4-6&#10;claude-haiku-4-5"></textarea>
-  <div class="hint">Ces modèles seront proposés au choix lors de la création/modification d'un agent rattaché à ce provider.</div>
+  <div class="hint">Liste proposée lors de la création/modification d'un agent. « Récupérer depuis l'API » interroge le provider (clé + URL ci-dessus) pour la remplir automatiquement.</div>
   <label>Modèle par défaut</label>
   <input id="p-model" list="p-model-list" placeholder="(le 1er de la liste si vide)">
   <datalist id="p-model-list"></datalist>
@@ -965,35 +967,68 @@ async function openAgentDlg(agent){
   $('#f-mission').value = agent?.mission_prompt || '';
   $('#f-provider').value = agent?.provider_id || '';
   // Le menu des modèles suit le provider sélectionné ; en édition on garde le modèle actuel,
-  // sinon on présélectionne le modèle par défaut du provider.
+  // sinon on présélectionne le modèle par défaut du provider. Récupération live en arrière-plan.
   $('#f-model-custom').value = '';
-  fillModelSelect(agent?.model || currentProvider()?.default_model || '');
+  const desired = agent?.model || currentProvider()?.default_model || '';
+  fillModelSelect(desired);
+  const prov0 = currentProvider();
+  if (prov0 && !modelCache[prov0.id]) fetchAgentModels(prov0, desired);
   $('#f-effort').value = agent?.effort || 'high';
   $('#f-iter').value = agent?.max_iterations || 60;
   $('#f-budget').value = agent?.session_token_budget || 0;
   dlgAgent.showModal();
 }
+const modelCache = {};   // provider_id -> liste de modèles récupérée dynamiquement (par session)
 function currentProvider(){
   const id = $('#f-provider').value ? +$('#f-provider').value : null;
   return providersList.find(p=>p.id===id) || providersList.find(p=>p.is_default) || null;
 }
+function providerModels(prov){
+  // modèles récupérés dynamiquement si disponibles, sinon ceux déclarés sur le provider
+  return prov ? (modelCache[prov.id] || prov.models || []) : [];
+}
 function fillModelSelect(selected){
   const prov = currentProvider();
-  const models = (prov?.models || []).slice();
+  const models = providerModels(prov).slice();
   if (selected && !models.includes(selected)) models.unshift(selected);   // préserve un modèle existant hors liste
   const sel = $('#f-model');
   sel.innerHTML = models.map(m=>`<option value="${esc(m)}"${m===selected?' selected':''}>${esc(m)}</option>`).join('')
     + `<option value="__custom__"${selected&&!models.includes(selected)?' selected':''}>✎ Autre (saisir)…</option>`;
   if (!models.length && !selected) sel.value = '__custom__';
+  const src = prov && modelCache[prov.id] ? ' (liste récupérée depuis l\'API)' : '';
   $('#f-model-hint').textContent = prov
-    ? `Modèles proposés par le provider « ${prov.name} »${prov.models&&prov.models.length?'':' (aucun déclaré — saisis le nom du modèle)'}.`
+    ? `Modèles du provider « ${prov.name} »${src}${providerModels(prov).length?'':' — aucun trouvé, saisis le nom du modèle'}.`
     : 'Aucun provider configuré.';
   onModelChange();
 }
+async function fetchAgentModels(prov, desired){
+  if (!prov) return;
+  $('#f-model-hint').textContent = `Récupération des modèles de « ${prov.name} »…`;
+  try{
+    const r = await api('/api/providers/fetch-models',
+      {method:'POST', body:JSON.stringify({provider_id:prov.id, ptype:prov.ptype, base_url:prov.base_url})});
+    if (r.models && r.models.length){
+      modelCache[prov.id] = r.models;
+      if (currentProvider()?.id === prov.id) fillModelSelect(desired || getModelValue());
+    } else if (currentProvider()?.id === prov.id){
+      fillModelSelect(desired || getModelValue());
+    }
+  }catch(e){
+    if (currentProvider()?.id === prov.id)
+      $('#f-model-hint').textContent = `Modèles API indisponibles (${e.message}) — liste déclarée utilisée.`;
+  }
+}
 function onAgentProviderChange(autofill){
-  // Changement de provider : recharge la liste, et choisit le modèle par défaut du provider.
+  // Changement de provider : recharge la liste, choisit son modèle par défaut, et tente une récupération live.
   const prov = currentProvider();
-  fillModelSelect(autofill ? (prov?.default_model || (prov?.models||[])[0] || '') : getModelValue());
+  const desired = autofill ? (prov?.default_model || providerModels(prov)[0] || '') : getModelValue();
+  fillModelSelect(desired);
+  if (prov && !modelCache[prov.id]) fetchAgentModels(prov, desired);
+}
+function refreshAgentModels(){
+  const prov = currentProvider(); if (!prov) return;
+  delete modelCache[prov.id];
+  fetchAgentModels(prov, getModelValue());
 }
 function onModelChange(){
   const custom = $('#f-model').value === '__custom__';
@@ -1427,6 +1462,18 @@ function parseModels(text){
 function syncProviderModelList(){
   // alimente la datalist du « modèle par défaut » avec les modèles saisis
   $('#p-model-list').innerHTML = parseModels($('#p-models').value).map(m=>`<option value="${esc(m)}">`).join('');
+}
+async function fetchProviderModels(){
+  const btn = $('#p-fetch'); const prev = btn.textContent; btn.disabled = true; btn.textContent = '… récupération';
+  try{
+    const body = {ptype:$('#p-type').value, base_url:$('#p-base').value.trim(), api_key:$('#p-key').value.trim()};
+    if (editingProviderId) body.provider_id = editingProviderId;   // clé vide → utilise celle stockée
+    const r = await api('/api/providers/fetch-models', {method:'POST', body:JSON.stringify(body)});
+    if (!r.models || !r.models.length){ alert('L\'API n\'a renvoyé aucun modèle.'); return; }
+    $('#p-models').value = r.models.join('\n'); syncProviderModelList();
+    if (!$('#p-model').value.trim()) $('#p-model').value = r.models[0];
+  }catch(e){ alert('Échec de récupération : '+e.message); }
+  finally{ btn.disabled = false; btn.textContent = prev; }
 }
 async function saveProvider(){
   const models = parseModels($('#p-models').value);

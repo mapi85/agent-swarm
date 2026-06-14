@@ -223,6 +223,30 @@ class OpenAIProvider:
                                 httpx.ReadTimeout, httpx.TimeoutException, httpx.RemoteProtocolError))
 
 
+# --- listing dynamique des modèles ---
+
+async def list_models(ptype: str, base_url: str, api_key: str) -> list[str]:
+    """Interroge l'API du provider pour lister ses modèles disponibles.
+    Anthropic : GET /v1/models (via SDK) · OpenAI : GET {base}/models."""
+    if ptype == "openai":
+        url = (base_url.rstrip("/") or "https://api.openai.com/v1") + "/models"
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as c:
+            r = await c.get(url, headers={"Authorization": f"Bearer {api_key}"})
+            r.raise_for_status()
+            data = r.json()
+        ids = [m.get("id") for m in (data.get("data") or []) if m.get("id")]
+        return sorted(ids)
+    # Anthropic ou compatible : le SDK appelle {base_url}/v1/models.
+    kwargs = {}
+    if api_key:
+        kwargs["api_key"] = api_key
+    if base_url:
+        kwargs["base_url"] = base_url
+    client = AsyncAnthropic(**kwargs)
+    page = await client.models.list(limit=1000)
+    return [m.id for m in page.data if getattr(m, "id", None)]
+
+
 # --- fabrique ---
 
 def build_provider(row: dict):

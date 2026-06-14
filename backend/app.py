@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import config, db, planner, runtime, scheduler
+from . import config, db, planner, providers, runtime, scheduler
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
@@ -118,6 +118,13 @@ class ProviderUpdate(BaseModel):
     limit_short_hours: int | None = None
     limit_long_tokens: int | None = None
     limit_long_days: int | None = None
+
+
+class FetchModels(BaseModel):
+    ptype: str = "anthropic"
+    base_url: str = ""
+    api_key: str = ""
+    provider_id: int | None = None        # si fourni, complète URL/clé manquantes avec celles stockées
 
 
 # ---------------------------------------------------------------------------
@@ -557,6 +564,29 @@ def _provider_payload(p: dict) -> dict:
 @app.get("/api/providers")
 def providers_list():
     return [_provider_payload(p) for p in db.list_providers()]
+
+
+@app.post("/api/providers/fetch-models")
+async def providers_fetch_models(body: FetchModels):
+    """Récupère dynamiquement la liste des modèles via l'API du provider.
+    Utilise les identifiants fournis ; à défaut (clé/URL vides), ceux du provider stocké."""
+    ptype = body.ptype
+    base_url = body.base_url.strip()
+    api_key = body.api_key.strip()
+    if body.provider_id:
+        p = db.get_provider(body.provider_id)
+        if not p:
+            raise HTTPException(404, "Provider inconnu.")
+        ptype = ptype or p["ptype"]
+        base_url = base_url or p["base_url"]
+        api_key = api_key or p["api_key"]
+    if ptype not in ("anthropic", "openai"):
+        raise HTTPException(400, "Type de provider invalide (anthropic | openai).")
+    try:
+        models = await providers.list_models(ptype, base_url, api_key)
+    except Exception as exc:
+        raise HTTPException(502, f"Échec de récupération des modèles : {type(exc).__name__}: {exc}")
+    return {"models": models}
 
 
 @app.post("/api/providers", status_code=201)
