@@ -275,6 +275,7 @@
   .pi-name{font-weight:650;font-size:15px}
   .pi-sub{color:var(--muted);font-size:12.5px}
   .pi-ico{font-size:22px}
+  .logo-hex{display:inline-block;flex:none}
   .profile-chip{display:inline-flex;align-items:center;gap:6px;background:var(--accent-soft);border:1px solid #cfe0fb;border-radius:16px;padding:4px 11px;font-size:12px;cursor:pointer;margin-left:8px;flex:none;font-weight:500}
   .profile-chip:hover{border-color:var(--accent)}
   /* ===== Onglets supervision ===== */
@@ -288,8 +289,7 @@
   .period-filter{display:flex;gap:6px;align-items:center;padding:10px 14px 0;flex-wrap:wrap}
   .period-btn{background:var(--panel);border:1px solid var(--border);color:var(--muted);padding:4px 12px;border-radius:14px;font-size:12px;cursor:pointer}
   .period-btn.active{background:var(--accent-soft);color:var(--accent);border-color:#cfe0fb;font-weight:600}
-  .state-group{margin-bottom:16px}
-  .state-group-h{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:6px;font-weight:650;display:flex;align-items:center;gap:6px}
+  .agents-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px}
   /* ===== Notifications ===== */
   .notif .nreply{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:flex-start}
   .notif .nreply textarea{flex:1;min-width:140px;min-height:62px;resize:vertical}
@@ -310,6 +310,7 @@
     .tab-pane{padding:12px 14px}
     /* sessions : boutons flottants en ligne séparée */
     .session-item .si-actions{float:none;display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+    .agents-grid{grid-template-columns:repeat(2,1fr)}
   }
   @media(max-width:560px){
     body{font-size:13.5px}
@@ -321,6 +322,7 @@
     .kpis{grid-template-columns:1fr 1fr;gap:8px}
     .kpi{padding:10px 12px}
     .kpi .kv{font-size:18px}
+    .agents-grid{grid-template-columns:1fr 1fr}
     .dash-grid{grid-template-columns:1fr}
     .page{padding:11px}
     .page h2{font-size:18px}
@@ -357,7 +359,7 @@
 <!-- ===== Overlay sélection de profil ===== -->
 <div id="profile-overlay" class="hidden">
   <div class="profile-card">
-    <h2>🐝 L'Essaim</h2>
+    <h2>⬡ L'Essaim</h2>
     <div class="psub">Choisir un profil pour filtrer les agents affichés.</div>
     <div class="profile-list" id="profile-list"></div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -368,7 +370,7 @@
 </div>
 
 <header>
-  <h1>🐝 <span class="htxt">L'<span>Essaim</span></span></h1>
+  <h1><svg class="logo-hex" width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><polygon points="12,2 21.5,7 21.5,17 12,22 2.5,17 2.5,7" fill="#2f6fed"/><text x="12" y="16.5" text-anchor="middle" fill="#fff" font-size="9.5" font-weight="700" font-family="Segoe UI,system-ui,sans-serif">LE</text></svg> <span class="htxt">L'<span>Essaim</span></span></h1>
   <button class="profile-chip" onclick="openProfileOverlay()" id="profile-chip" title="Changer de profil">👤 <span id="profile-chip-name">…</span></button>
   <nav>
     <button data-view="dash" class="active" onclick="showView('dash')">Tableau de bord</button>
@@ -474,52 +476,48 @@
 
 <!-- ============ EXPLORATEUR ============ -->
 <div id="view-explorer" class="view">
-  <div class="page">
-    <h2>Explorateur de fichiers</h2>
+  <div class="page" style="padding-bottom:0">
+    <h2>Explorateur</h2>
     <div class="sub">Artefacts produits par les agents et ressources mutualisées.</div>
-    <div class="grid duo">
-      <div>
-        <div class="section-h">Artefacts (fichiers produits par les agents)</div>
-        <div class="toolbar">
-          <select id="a-agent" onchange="loadArtifacts()"><option value="">— Choisir un agent —</option></select>
-          <input type="search" id="a-search" placeholder="Rechercher (dans tous les dossiers)…" oninput="renderArtifacts()">
-          <select id="a-sort" onchange="renderArtifacts()">
-            <option value="date">Tri : récent</option>
-            <option value="name">Tri : nom</option>
-            <option value="size">Tri : taille</option>
-          </select>
-        </div>
-        <div class="crumbs" id="a-crumbs"></div>
-        <div class="card-list" id="artifacts-list"></div>
-      </div>
-      <div>
-        <details class="tile" open>
-          <summary><b>📁 Ressources gérées</b></summary>
-          <div class="tile-body">
-            <div class="toolbar">
-              <select id="r-scope" onchange="loadResources()">
-                <option value="">Tous les scopes</option>
-                <option value="shared">Mutualisées</option>
-                <option value="agent">Liées à un agent</option>
-                <option value="task">Liées à une tâche</option>
-              </select>
-              <select id="r-agent" onchange="loadResources()"><option value="">Tous les agents</option></select>
-              <select id="r-project" onchange="loadResources()"><option value="">Toutes les missions</option></select>
-              <button class="small" onclick="dlgResource.showModal()">+ Ajouter</button>
-            </div>
-            <div class="toolbar">
-              <input type="search" id="r-search" placeholder="Rechercher…" oninput="renderResources()">
-              <select id="r-sort" onchange="renderResources()">
-                <option value="date">Tri : récent</option>
-                <option value="name">Tri : nom</option>
-                <option value="size">Tri : taille</option>
-              </select>
-            </div>
-            <div class="card-list" id="resources-list"></div>
-          </div>
-        </details>
-      </div>
+  </div>
+  <div class="tab-bar" style="margin:0;padding:0 22px">
+    <button class="tab-btn active" onclick="switchExplorerTab(0)">📄 Artefacts</button>
+    <button class="tab-btn" onclick="switchExplorerTab(1)">📁 Ressources</button>
+  </div>
+  <div class="tab-pane active" id="exp-tab-artifacts" style="max-width:1280px;margin:0 auto">
+    <div class="toolbar">
+      <select id="a-agent" onchange="loadArtifacts()"><option value="">— Choisir un agent —</option></select>
+      <input type="search" id="a-search" placeholder="Rechercher (dans tous les dossiers)…" oninput="renderArtifacts()">
+      <select id="a-sort" onchange="renderArtifacts()">
+        <option value="date">Tri : récent</option>
+        <option value="name">Tri : nom</option>
+        <option value="size">Tri : taille</option>
+      </select>
     </div>
+    <div class="crumbs" id="a-crumbs"></div>
+    <div class="card-list" id="artifacts-list"></div>
+  </div>
+  <div class="tab-pane" id="exp-tab-resources" style="max-width:1280px;margin:0 auto">
+    <div class="toolbar">
+      <select id="r-scope" onchange="loadResources()">
+        <option value="">Tous les scopes</option>
+        <option value="shared">Mutualisées</option>
+        <option value="agent">Liées à un agent</option>
+        <option value="task">Liées à une tâche</option>
+      </select>
+      <select id="r-agent" onchange="loadResources()"><option value="">Tous les agents</option></select>
+      <select id="r-project" onchange="loadResources()"><option value="">Toutes les missions</option></select>
+      <button class="small" onclick="dlgResource.showModal()">+ Ajouter</button>
+    </div>
+    <div class="toolbar">
+      <input type="search" id="r-search" placeholder="Rechercher…" oninput="renderResources()">
+      <select id="r-sort" onchange="renderResources()">
+        <option value="date">Tri : récent</option>
+        <option value="name">Tri : nom</option>
+        <option value="size">Tri : taille</option>
+      </select>
+    </div>
+    <div class="card-list" id="resources-list"></div>
   </div>
 </div>
 
@@ -705,6 +703,11 @@ function selectProfile(id, name){
   sessionStorage.setItem('profileName', name ?? '');
   $('#profile-overlay').classList.add('hidden');
   updateProfileChip();
+  // Réinitialise toutes les données du profil précédent
+  overview = {}; agents = []; resources = []; artifacts = [];
+  selectedAgent = null; selectedSession = null;
+  const d = $('#detail');
+  if (d) d.innerHTML = '<div class="placeholder">Sélectionne un agent pour le superviser.</div>';
   refresh();
 }
 function updateProfileChip(){
@@ -805,8 +808,13 @@ function showView(v){
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active', b.dataset.view===v));
   if (v==='dash') loadDash();
   if (v==='missions') loadProjects();
-  if (v==='explorer'){ populateSelects(); loadResources(); loadArtifacts(); }
+  if (v==='explorer'){ populateSelects(); loadArtifacts(); }
   if (v==='settings') loadProviders();
+}
+function switchExplorerTab(idx){
+  document.querySelectorAll('#view-explorer .tab-btn').forEach((b,i)=>b.classList.toggle('active',i===idx));
+  document.querySelectorAll('#view-explorer .tab-pane').forEach((p,i)=>p.classList.toggle('active',i===idx));
+  if (idx===1 && !resources.length) { populateSelects(); loadResources(); }
 }
 
 /* ---------- rafraîchissement global ---------- */
@@ -856,13 +864,15 @@ async function loadDash(){
       <div class="kpi click ${ov.notifications_open?'alert':''}" onclick="toggleNotifs(event)"><div class="kv">${ov.notifications_open}</div><div class="kl">notifications à traiter</div></div>
       <div class="kpi"><div class="kv">${fmtTok(h24tok||0)}</div><div class="kl">tokens 24 h (in+out)</div></div>`;
 
-    // Questions en attente
+    // Questions en attente — filtrées par profil (seuls les agents du profil actif)
+    const agentIds = new Set(agents.map(a=>a.id));
+    const filteredQs = currentProfileId ? openQs.filter(n=>agentIds.has(n.agent_id)) : openQs;
     const qEl = $('#dash-questions');
-    const qCount = openQs.length;
+    const qCount = filteredQs.length;
     $('#dash-q-count').textContent = qCount ? `(${qCount})` : '(aucune)';
     qEl.style.display = '';
     if (qCount) { qEl.open = true; }
-    $('#dash-q-list').innerHTML = qCount ? openQs.map(n=>`
+    $('#dash-q-list').innerHTML = qCount ? filteredQs.map(n=>`
       <div class="notif question" style="margin-bottom:10px">
         <div class="nhead"><span class="ntype">❓ Question</span> · ${esc(n.agent_name)} · ${fmtTs(n.created_at)}</div>
         <div class="ncontent">${md(n.content)}</div>
@@ -876,24 +886,20 @@ async function loadDash(){
         </div>
       </div>`).join('') : '<div class="empty">Aucune question en attente.</div>';
 
-    // Agents groupés par état
-    const groups = [
-      {key:'running', label:'▶ En cours', agents: agents.filter(a=>a.state==='running')},
-      {key:'awaiting', label:'❓ En attente de réponse', agents: agents.filter(a=>a.state==='awaiting')},
-      {key:'scheduled', label:'⏱ Session planifiée', agents: agents.filter(a=>a.state==='scheduled')},
-      {key:'failed', label:'⚠ Dernier run en échec', agents: agents.filter(a=>a.last_session_failed)},
-      {key:'paused', label:'⏸ En pause', agents: agents.filter(a=>a.state==='paused')},
-      {key:'idle', label:'💤 Inactifs', agents: agents.filter(a=>a.state==='idle'&&!a.last_session_failed)},
-    ].filter(g=>g.agents.length);
-    $('#dash-agents').innerHTML = groups.map(g=>`
-      <div class="state-group">
-        <div class="state-group-h"><span class="dot ${g.key==='failed'?'failed':g.key}"></span>${esc(g.label)} <span style="font-weight:400">(${g.agents.length})</span></div>
-        <div class="agent-strip">${g.agents.map(a=>`
-          <div class="astate" onclick="gotoAgent(${a.id})" title="${esc(STATE_LABEL[a.state]||a.state)}">
-            <span class="dot ${a.last_session_failed?'failed':a.state}"></span><b>${esc(a.name)}</b>
-            <span class="state-pill ${a.last_session_failed?'failed':a.state}">${a.last_session_failed?'⚠ échec':(STATE_LABEL[a.state]||a.state)}</span>
-          </div>`).join('')}</div>
-      </div>`).join('') || '<div class="empty" style="margin-bottom:16px">Aucun agent.</div>';
+    // Agents en grille 4 colonnes (triés : running → awaiting → scheduled → failed → paused → idle)
+    const stateOrder = {running:0, awaiting:1, scheduled:2, paused:3, idle:4};
+    const sorted = [...agents].sort((a,b)=>{
+      const oa = a.last_session_failed ? 2.5 : (stateOrder[a.state]??5);
+      const ob = b.last_session_failed ? 2.5 : (stateOrder[b.state]??5);
+      return oa - ob || a.name.localeCompare(b.name);
+    });
+    $('#dash-agents').innerHTML = sorted.length ? `<div class="agents-grid">${sorted.map(a=>{
+      const dotCls = a.last_session_failed ? 'failed' : a.state;
+      const lbl = a.last_session_failed ? '⚠ échec' : (STATE_LABEL[a.state]||a.state);
+      return `<div class="astate" onclick="gotoAgent(${a.id})" title="${esc(lbl)}">
+        <span class="dot ${dotCls}"></span><b style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.name)}</b>
+        <span class="state-pill ${dotCls}" style="flex:none">${lbl}</span></div>`;
+    }).join('')}</div>` : '<div class="empty" style="margin-bottom:16px">Aucun agent.</div>';
 
     // Synthèse de consommation
     $('#dash-tok-summary').innerHTML = `
