@@ -445,7 +445,7 @@
     <button class="full" onclick="openAgentDlg(null)">+ Nouvel agent</button>
     <input type="search" id="ag-search" placeholder="Rechercher un agent…" oninput="renderAgentList()" style="margin-top:10px">
     <label style="display:flex;align-items:center;font-weight:400;color:var(--muted);margin:8px 0 4px">
-      <input type="checkbox" id="ag-active" onchange="renderAgentList()" style="width:auto;margin-right:6px">Agents actifs seulement</label>
+      <input type="checkbox" id="ag-active" onchange="localStorage.setItem('hideIdleAgents',this.checked?'1':'0');renderAgentList()" style="width:auto;margin-right:6px">Agents actifs seulement</label>
     <div id="agent-list" style="margin-top:6px"></div>
   </div>
   <div id="detail"><div class="placeholder">Sélectionne un agent pour le superviser.</div></div>
@@ -662,7 +662,7 @@ const $ = s => document.querySelector(s);
 let agents = [], projects = [], providersList = [], resources = [], artifacts = [], profilesList = [];
 let selectedAgent = null, selectedSession = null, lastEventId = 0;
 let curView = 'dash', editingAgentId = null, editingProviderId = null, overview = {};
-let hidePastSessions = false;
+let hidePastSessions = localStorage.getItem('hidePastSessions') === '1';
 let currentProfileId = null, currentProfileName = null;
 let dashPeriod = null;   // null = tout, '7d', '24h'
 let activeDetailTab = 0;
@@ -1312,7 +1312,7 @@ async function pollEvents() {
   }
 }
 
-function toggleHidePast(){ hidePastSessions = $('#s-hidepast').checked; refreshLists(); }
+function toggleHidePast(){ hidePastSessions = $('#s-hidepast').checked; localStorage.setItem('hidePastSessions', hidePastSessions?'1':'0'); refreshLists(); }
 
 async function act(url) { try { await api(url, {method:'POST', body:'{}'}); await refresh(); } catch(e){ alert(e.message); } }
 
@@ -1951,7 +1951,10 @@ function switchDetailTab(idx){
   if (idx === 2) loadDetailArtifacts();
 }
 
-initProfiles().then(()=>{ refresh(); setInterval(refresh, 3000); });
+initProfiles().then(()=>{
+  if (localStorage.getItem('hideIdleAgents') === '1') { const c=$('#ag-active'); if(c) c.checked=true; }
+  refresh(); setInterval(refresh, 3000);
+});
 </script>
 </body>
 </html>
