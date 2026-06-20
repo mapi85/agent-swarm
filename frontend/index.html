@@ -289,7 +289,14 @@
   .period-filter{display:flex;gap:6px;align-items:center;padding:10px 14px 0;flex-wrap:wrap}
   .period-btn{background:var(--panel);border:1px solid var(--border);color:var(--muted);padding:4px 12px;border-radius:14px;font-size:12px;cursor:pointer}
   .period-btn.active{background:var(--accent-soft);color:var(--accent);border-color:#cfe0fb;font-weight:600}
-  .agents-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px}
+  .state-groups-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(185px,1fr));gap:10px;margin-bottom:16px;align-items:start}
+  .state-group{background:var(--panel);border:1px solid var(--border);border-radius:9px;overflow:hidden;box-shadow:var(--shadow)}
+  .state-group-h{font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:650;padding:6px 10px 5px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:5px;background:var(--panel2)}
+  .state-group-h .cnt{margin-left:auto;font-weight:400;font-size:10.5px;color:var(--muted)}
+  .sg-row{display:flex;align-items:center;gap:7px;padding:5px 10px;border-bottom:1px solid var(--panel2);cursor:pointer;font-size:12.5px;min-width:0;overflow:hidden}
+  .sg-row:last-child{border-bottom:0}
+  .sg-row:hover{background:var(--accent-soft)}
+  .sg-row b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* ===== Notifications ===== */
   .notif .nreply{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:flex-start}
   .notif .nreply textarea{flex:1;min-width:140px;min-height:62px;resize:vertical}
@@ -310,7 +317,7 @@
     .tab-pane{padding:12px 14px}
     /* sessions : boutons flottants en ligne séparée */
     .session-item .si-actions{float:none;display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
-    .agents-grid{grid-template-columns:repeat(2,1fr)}
+    .state-groups-grid{grid-template-columns:repeat(2,1fr)}
   }
   @media(max-width:560px){
     body{font-size:13.5px}
@@ -706,6 +713,7 @@ function selectProfile(id, name){
   // Réinitialise toutes les données du profil précédent
   overview = {}; agents = []; resources = []; artifacts = [];
   selectedAgent = null; selectedSession = null;
+  artPath = ''; detailArtPath = '';
   const d = $('#detail');
   if (d) d.innerHTML = '<div class="placeholder">Sélectionne un agent pour le superviser.</div>';
   refresh();
@@ -830,6 +838,7 @@ async function refresh() {
     else badge.style.display='none';
     renderAgentList();
     if (curView==='dash') loadDash();
+    if (curView==='explorer'){ populateSelects(); loadArtifacts(); if (resources.length) loadResources(); }
     if (selectedAgent) {
       const fresh = agents.find(a => a.id === selectedAgent.id);
       if (fresh) { selectedAgent = fresh; renderDetailHead(); await refreshLists(); }
@@ -886,20 +895,30 @@ async function loadDash(){
         </div>
       </div>`).join('') : '<div class="empty">Aucune question en attente.</div>';
 
-    // Agents en grille 4 colonnes (triés : running → awaiting → scheduled → failed → paused → idle)
-    const stateOrder = {running:0, awaiting:1, scheduled:2, paused:3, idle:4};
-    const sorted = [...agents].sort((a,b)=>{
-      const oa = a.last_session_failed ? 2.5 : (stateOrder[a.state]??5);
-      const ob = b.last_session_failed ? 2.5 : (stateOrder[b.state]??5);
-      return oa - ob || a.name.localeCompare(b.name);
-    });
-    $('#dash-agents').innerHTML = sorted.length ? `<div class="agents-grid">${sorted.map(a=>{
-      const dotCls = a.last_session_failed ? 'failed' : a.state;
-      const lbl = a.last_session_failed ? '⚠ échec' : (STATE_LABEL[a.state]||a.state);
-      return `<div class="astate" onclick="gotoAgent(${a.id})" title="${esc(lbl)}">
-        <span class="dot ${dotCls}"></span><b style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.name)}</b>
-        <span class="state-pill ${dotCls}" style="flex:none">${lbl}</span></div>`;
-    }).join('')}</div>` : '<div class="empty" style="margin-bottom:16px">Aucun agent.</div>';
+    // Agents : colonnes par groupe d'état
+    const stateGroups = [
+      {key:'running',   dot:'running',   label:'▶ En cours'},
+      {key:'awaiting',  dot:'awaiting',  label:'❓ Att. réponse'},
+      {key:'scheduled', dot:'scheduled', label:'⏱ Planifiés'},
+      {key:'failed',    dot:'failed',    label:'⚠ En échec'},
+      {key:'paused',    dot:'paused',    label:'⏸ En pause'},
+      {key:'idle',      dot:'idle',      label:'💤 Inactifs'},
+    ];
+    const agGroup = a => a.last_session_failed ? 'failed'
+      : a.state === 'idle' ? 'idle' : a.state;
+    const byGroup = {};
+    for (const a of agents){ const k=agGroup(a); (byGroup[k]=byGroup[k]||[]).push(a); }
+    const cols = stateGroups.filter(g=>byGroup[g.key]?.length);
+    $('#dash-agents').innerHTML = cols.length ? `<div class="state-groups-grid">${cols.map(g=>`
+      <div class="state-group">
+        <div class="state-group-h"><span class="dot ${g.dot}"></span>${g.label}<span class="cnt">${byGroup[g.key].length}</span></div>
+        ${byGroup[g.key].sort((a,b)=>a.name.localeCompare(b.name)).map(a=>`
+          <div class="sg-row" onclick="gotoAgent(${a.id})" title="${esc(a.name)}">
+            <span class="dot ${a.last_session_failed?'failed':a.state}"></span>
+            <b>${esc(a.name)}</b>
+          </div>`).join('')}
+      </div>`).join('')}</div>`
+    : '<div class="empty" style="margin-bottom:16px">Aucun agent.</div>';
 
     // Synthèse de consommation
     $('#dash-tok-summary').innerHTML = `
