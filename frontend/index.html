@@ -644,7 +644,7 @@
   <div id="rf-name-wrap" style="display:none"><label>Nom</label><input id="rf-name"></div>
   <div id="rf-content-wrap" style="display:none"><label id="rf-content-label">Contenu</label><textarea id="rf-content" rows="4"></textarea></div>
   <label>Description (optionnelle)</label><input id="rf-desc">
-  <div class="dialog-actions"><button class="secondary" onclick="dlgResource.close()">Annuler</button><button onclick="createResource()">Ajouter</button></div>
+  <div class="dialog-actions"><button class="secondary" onclick="dlgResource.close();_resetResourceDlg()">Annuler</button><button onclick="createResource()">Ajouter</button></div>
 </dialog>
 
 <dialog id="dlgPreview">
@@ -1185,12 +1185,12 @@ async function refreshLists() {
               <div class="rsub">${esc(r.description||'')}${r.size?' · '+fmtSize(r.size):''}</div></div>
             <button class="small danger" onclick="event.stopPropagation();delResource(${r.id})">×</button>
           </div>`).join('')}
-        <div style="padding:6px 0"><button class="small secondary" onclick="dlgResource.showModal()">+ Ajouter une ressource</button></div>
+        <div style="padding:6px 0"><button class="small secondary" onclick="openResourceDlgForAgent()">+ Ajouter une ressource</button></div>
       </div>` : `
       <div class="section-h">Ressources liées à cet agent</div>
       <div style="margin-bottom:12px">
         <div class="empty" style="padding:10px 0;text-align:left">Aucune ressource liée à cet agent.</div>
-        <button class="small secondary" onclick="dlgResource.showModal()">+ Ajouter</button>
+        <button class="small secondary" onclick="openResourceDlgForAgent()">+ Ajouter</button>
       </div>`;
   }
 
@@ -1505,6 +1505,19 @@ function resScopeChange(){
   $('#rf-agent-wrap').style.display = s==='agent'?'':'none';
   $('#rf-task-wrap').style.display = s==='task'?'':'none';
 }
+let _resDlgAgentLocked = false;
+function openResourceDlgForAgent(){
+  if (!selectedAgent) { dlgResource.showModal(); return; }
+  $('#rf-scope').value = 'agent';
+  $('#rf-agent').innerHTML = agents.map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('');
+  $('#rf-agent').value = selectedAgent.id;
+  resScopeChange();
+  $('#rf-scope').disabled = true;
+  $('#rf-agent').disabled = true;
+  _resDlgAgentLocked = true;
+  dlgResource.querySelector('h3').textContent = `Ajouter une ressource à « ${esc(selectedAgent.name)} »`;
+  dlgResource.showModal();
+}
 async function createResource(){
   try{
     const type=$('#rf-type').value, scope=$('#rf-scope').value;
@@ -1520,9 +1533,18 @@ async function createResource(){
         scope, name:$('#rf-name').value.trim(), content:$('#rf-content').value, kind:type,
         description:$('#rf-desc').value, agent_id, task_id})});
     }
-    dlgResource.close(); $('#rf-name').value=$('#rf-content').value=$('#rf-desc').value='';
-    loadResources();
+    const wasLocked = _resDlgAgentLocked;
+    dlgResource.close(); _resetResourceDlg();
+    $('#rf-name').value=$('#rf-content').value=$('#rf-desc').value='';
+    if (wasLocked) { await refreshLists(); }
+    else { loadResources(); }
   }catch(e){ alert(e.message); }
+}
+function _resetResourceDlg(){
+  dlgResource.querySelector('h3').textContent = 'Ajouter une ressource';
+  $('#rf-scope').disabled = false;
+  $('#rf-agent').disabled = false;
+  _resDlgAgentLocked = false;
 }
 async function loadResources(){
   const params = new URLSearchParams();
