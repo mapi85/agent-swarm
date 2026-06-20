@@ -565,38 +565,45 @@ def _since_cutoff(period: str | None) -> str | None:
     return None
 
 
-def tokens_by_agent(period: str | None = None) -> list[dict]:
+def tokens_by_agent(period: str | None = None, profile_id: int | None = None) -> list[dict]:
     since = _since_cutoff(period)
     date_filter = "AND COALESCE(s.started_at,'') >= ?" if since else ""
-    params = (since,) if since else ()
+    prof_filter = "AND (a.profile_id = ? OR a.profile_id IS NULL)" if profile_id else ""
+    params = tuple(v for v in (since, profile_id) if v is not None)
     return query(
         f"SELECT a.id, a.name, COALESCE(SUM(s.input_tokens),0) AS input_tokens, "
         f"COALESCE(SUM(s.output_tokens),0) AS output_tokens, COUNT(s.id) AS sessions "
         f"FROM agents a LEFT JOIN sessions s ON s.agent_id = a.id {date_filter} "
+        f"WHERE 1=1 {prof_filter} "
         f"GROUP BY a.id ORDER BY input_tokens + output_tokens DESC", params)
 
 
-def tokens_by_provider(period: str | None = None) -> list[dict]:
+def tokens_by_provider(period: str | None = None, profile_id: int | None = None) -> list[dict]:
     since = _since_cutoff(period)
     date_filter = "AND COALESCE(started_at,'') >= ?" if since else ""
-    params = (since,) if since else ()
+    prof_filter = ("AND agent_id IN (SELECT id FROM agents WHERE profile_id = ? OR profile_id IS NULL)"
+                   if profile_id else "")
+    params = tuple(v for v in (since, profile_id) if v is not None)
     return query(
         f"SELECT COALESCE(provider, '(inconnu)') AS provider, SUM(input_tokens) AS input_tokens, "
         f"SUM(output_tokens) AS output_tokens, COUNT(*) AS sessions "
-        f"FROM sessions WHERE input_tokens + output_tokens > 0 {date_filter} "
+        f"FROM sessions WHERE input_tokens + output_tokens > 0 {date_filter} {prof_filter} "
         f"GROUP BY COALESCE(provider, '(inconnu)') ORDER BY input_tokens + output_tokens DESC", params)
 
 
-def tokens_by_project(period: str | None = None) -> list[dict]:
+def tokens_by_project(period: str | None = None, profile_id: int | None = None) -> list[dict]:
     since = _since_cutoff(period)
     date_filter = "AND COALESCE(s2.started_at,'') >= ?" if since else ""
-    params = (since,) if since else ()
+    prof_filter = ("AND (t.agent_id IS NULL OR t.agent_id IN "
+                   "(SELECT id FROM agents WHERE profile_id = ? OR profile_id IS NULL))"
+                   if profile_id else "")
+    params = tuple(v for v in (since, profile_id) if v is not None)
     return query(
         f"SELECT p.id, p.title, p.status, COALESCE(SUM(t.input_tokens),0) AS input_tokens, "
         f"COALESCE(SUM(t.output_tokens),0) AS output_tokens "
         f"FROM projects p LEFT JOIN tasks t ON t.project_id = p.id "
         f"LEFT JOIN sessions s2 ON s2.id = t.session_id "
-        f"WHERE 1=1 {date_filter} "
+        f"WHERE 1=1 {date_filter} {prof_filter} "
         f"GROUP BY p.id ORDER BY p.id DESC", params)
 
 
@@ -605,54 +612,60 @@ def add_task_tokens(task_id: int, input_tokens: int, output_tokens: int) -> None
             "WHERE id = ?", (input_tokens, output_tokens, task_id))
 
 
-def tokens_summary(period: str | None = None) -> dict:
+def tokens_summary(period: str | None = None, profile_id: int | None = None) -> dict:
     """Totaux, moyennes et extrêmes sur les sessions ayant consommé des tokens."""
     since = _since_cutoff(period)
     date_filter = "AND COALESCE(started_at,'') >= ?" if since else ""
-    params = (since,) if since else ()
+    prof_filter = ("AND agent_id IN (SELECT id FROM agents WHERE profile_id = ? OR profile_id IS NULL)"
+                   if profile_id else "")
+    params = tuple(v for v in (since, profile_id) if v is not None)
     row = query_one(
         f"SELECT COUNT(*) AS sessions, COALESCE(SUM(input_tokens),0) AS input_tokens, "
         f"COALESCE(SUM(output_tokens),0) AS output_tokens, "
         f"COALESCE(MAX(input_tokens + output_tokens),0) AS max_session "
-        f"FROM sessions WHERE input_tokens + output_tokens > 0 {date_filter}", params)
+        f"FROM sessions WHERE input_tokens + output_tokens > 0 {date_filter} {prof_filter}", params)
     completed = query_one(
-        f"SELECT COUNT(*) AS c FROM sessions WHERE status = 'completed' {date_filter}", params)["c"]
+        f"SELECT COUNT(*) AS c FROM sessions WHERE status = 'completed' {date_filter} {prof_filter}", params)["c"]
     total = row["input_tokens"] + row["output_tokens"]
     row["total"] = total
     row["avg_session"] = round(total / row["sessions"]) if row["sessions"] else 0
     row["completed_sessions"] = completed
     # Tokens des dernières 24h (toujours inclus pour les KPIs du dashboard)
     cutoff_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(timespec="seconds")
+    p24 = (cutoff_24h, profile_id) if profile_id else (cutoff_24h,)
     r24 = query_one(
         "SELECT COALESCE(SUM(input_tokens),0) AS input_tokens, "
         "COALESCE(SUM(output_tokens),0) AS output_tokens "
-        "FROM sessions WHERE COALESCE(started_at,'') >= ?", (cutoff_24h,))
+        f"FROM sessions WHERE COALESCE(started_at,'') >= ? {prof_filter}", p24)
     row["last_24h"] = {"input_tokens": r24["input_tokens"], "output_tokens": r24["output_tokens"]}
     return row
 
 
-def tokens_by_day(days: int = 30, period: str | None = None) -> list[dict]:
+def tokens_by_day(days: int = 30, period: str | None = None, profile_id: int | None = None) -> list[dict]:
     """Consommation agrégée par jour (sur la date de démarrage des sessions)."""
     since = _since_cutoff(period)
     date_filter = "AND started_at >= ?" if since else ""
-    params_day = (since, days) if since else (days,)
+    prof_filter = ("AND agent_id IN (SELECT id FROM agents WHERE profile_id = ? OR profile_id IS NULL)"
+                   if profile_id else "")
+    params_day = tuple(v for v in (since, profile_id, days) if v is not None)
     return query(
         f"SELECT substr(started_at, 1, 10) AS day, SUM(input_tokens) AS input_tokens, "
         f"SUM(output_tokens) AS output_tokens, COUNT(*) AS sessions "
-        f"FROM sessions WHERE started_at IS NOT NULL AND input_tokens + output_tokens > 0 {date_filter} "
+        f"FROM sessions WHERE started_at IS NOT NULL AND input_tokens + output_tokens > 0 {date_filter} {prof_filter} "
         f"GROUP BY day ORDER BY day DESC LIMIT ?", params_day)
 
 
-def tokens_by_category(period: str | None = None) -> list[dict]:
+def tokens_by_category(period: str | None = None, profile_id: int | None = None) -> list[dict]:
     """Consommation agrégée par thème d'agent."""
     since = _since_cutoff(period)
     date_filter = "AND COALESCE(s.started_at,'') >= ?" if since else ""
-    params = (since,) if since else ()
+    prof_filter = "AND (a.profile_id = ? OR a.profile_id IS NULL)" if profile_id else ""
+    params = tuple(v for v in (since, profile_id) if v is not None)
     return query(
         f"SELECT CASE WHEN a.category = '' THEN '(sans thème)' ELSE a.category END AS category, "
         f"COALESCE(SUM(s.input_tokens),0) AS input_tokens, COALESCE(SUM(s.output_tokens),0) AS output_tokens, "
         f"COUNT(s.id) AS sessions FROM agents a LEFT JOIN sessions s ON s.agent_id = a.id "
-        f"WHERE 1=1 {date_filter} "
+        f"WHERE 1=1 {date_filter} {prof_filter} "
         f"GROUP BY a.category HAVING input_tokens + output_tokens > 0 "
         f"ORDER BY input_tokens + output_tokens DESC", params)
 

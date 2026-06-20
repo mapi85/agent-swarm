@@ -742,16 +742,16 @@ def providers_delete(pid: int):
 # ---------------------------------------------------------------------------
 
 @app.get("/api/stats/tokens")
-def stats_tokens(days: int = 30, period: str | None = None):
-    summary = db.tokens_summary(period)
+def stats_tokens(days: int = 30, period: str | None = None, profile_id: int | None = None):
+    summary = db.tokens_summary(period, profile_id)
     return {
         "total": {"input_tokens": summary["input_tokens"], "output_tokens": summary["output_tokens"]},
         "summary": summary,
-        "by_agent": db.tokens_by_agent(period),
-        "by_provider": db.tokens_by_provider(period),
-        "by_project": db.tokens_by_project(period),
-        "by_category": db.tokens_by_category(period),
-        "by_day": list(reversed(db.tokens_by_day(days, period))),   # ancien → récent
+        "by_agent": db.tokens_by_agent(period, profile_id),
+        "by_provider": db.tokens_by_provider(period, profile_id),
+        "by_project": db.tokens_by_project(period, profile_id),
+        "by_category": db.tokens_by_category(period, profile_id),
+        "by_day": list(reversed(db.tokens_by_day(days, period, profile_id))),
     }
 
 

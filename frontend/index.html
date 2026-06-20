@@ -856,8 +856,9 @@ async function loadDash(){
     const pqs = profileQs();
     const periodQs = dashPeriod ? `period=${dashPeriod}` : '';
     const ov = overview.agents!==undefined ? overview : await api('/api/overview'+(pqs?`?${pqs}`:''));
+    const statsQs = [periodQs, pqs].filter(Boolean).join('&');
     const [stats, openQs] = await Promise.all([
-      api('/api/stats/tokens'+(periodQs?`?${periodQs}`:'')),
+      api('/api/stats/tokens'+(statsQs?`?${statsQs}`:'')),
       api('/api/notifications?status=open&type=question'+(pqs?`&${pqs}`:''))]);
 
     // KPIs
