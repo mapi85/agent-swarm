@@ -75,6 +75,8 @@ async def _auth_middleware(request: Request, call_next):
         return await call_next(request)
     auth = request.headers.get("Authorization", "")
     token = auth[7:] if auth.startswith("Bearer ") else ""
+    if not token:                           # fallback : token en query param (images, téléchargements)
+        token = request.query_params.get("token", "")
     if not token or not _verify_token(token):
         return JSONResponse({"detail": "Non authentifié"}, status_code=401)
     return await call_next(request)

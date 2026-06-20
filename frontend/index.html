@@ -1684,16 +1684,19 @@ function renderArtifacts(){
   box.innerHTML = html || '<div class="empty">Dossier vide.</div>';
 }
 async function previewArtifact(id, path){
-  const url = `/api/agents/${id}/artifact?path=${encodeURIComponent(path)}`;
+  const tok = authToken ? `&token=${encodeURIComponent(authToken)}` : '';
+  const url = `/api/agents/${id}/artifact?path=${encodeURIComponent(path)}${tok}`;
+  const dlUrl = url + '&download=true';
   const name = path.split('/').pop();
-  if (isImg(path)){ showPreview(name, `<img src="${url}">`, url+'&download=true', name); return; }
-  if (!isText(path)){ showPreview(name, `<div class="empty">Pas d'aperçu pour ce type de fichier — utilise le téléchargement.</div>`, url+'&download=true', name); return; }
+  if (isImg(path)){ showPreview(name, `<img src="${url}">`, dlUrl, name); return; }
+  if (!isText(path)){ showPreview(name, `<div class="empty">Pas d'aperçu pour ce type de fichier — utilise le téléchargement.</div>`, dlUrl, name); return; }
   try{
-    const txt = await (await fetch(url)).text();
+    const h = authToken ? {'Authorization':'Bearer '+authToken} : {};
+    const txt = await (await fetch(url, {headers:h})).text();
     showPreview(name, isMd(path) ? `<div class="md-body">${mdToHtml(txt)}</div>` : `<pre>${esc(txt)}</pre>`,
-                url+'&download=true', name, isMd(path) ? txt : null);
+                dlUrl, name, isMd(path) ? txt : null);
   }
-  catch(e){ showPreview(name, `<div class="empty">${esc(e.message)}</div>`, url+'&download=true', name); }
+  catch(e){ showPreview(name, `<div class="empty">${esc(e.message)}</div>`, dlUrl, name); }
 }
 let pvMdSource = null, pvShowingSource = false;
 function showPreview(title, bodyHtml, dlUrl, dlName, mdSource){
