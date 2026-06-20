@@ -1029,6 +1029,7 @@ async function selectAgent(id) {
       <button class="tab-btn" onclick="switchDetailTab(2)">Artefacts</button>
     </div>
     <div class="tab-pane active" id="tab-desc">
+      <div class="section-h" style="margin-top:0">Mission</div>
       <div class="mission" id="d-mission"></div>
       <div class="actions">
         <button class="small" onclick="dlgTask.showModal()">+ Tâche</button>
@@ -1037,6 +1038,8 @@ async function selectAgent(id) {
         <button class="small secondary" id="d-pause"></button>
         <button class="small danger" onclick="deleteAgent()">🗑 Supprimer</button>
       </div>
+      <div id="d-last-report"></div>
+      <div id="d-agent-resources"></div>
       <div id="d-agent-notifs"></div>
     </div>
     <div class="tab-pane" id="tab-sessions">
@@ -1141,10 +1144,54 @@ function renderDetailHead() {
 async function refreshLists() {
   if (!selectedAgent) return;
   const a = selectedAgent;
-  const [allSessions, tasks, services, agentNotifs] = await Promise.all([
+  const [allSessions, tasks, services, agentNotifs, agentResources] = await Promise.all([
     api(`/api/agents/${a.id}/sessions`), api(`/api/agents/${a.id}/tasks`),
     api(`/api/agents/${a.id}/services`),
-    api(`/api/notifications?agent_id=${a.id}&status=open`)]);
+    api(`/api/notifications?agent_id=${a.id}&status=open`),
+    api(`/api/resources?scope=agent&agent_id=${a.id}`)]);
+
+  // ---- Onglet 1 : rapport de la dernière session ----
+  const repEl = $('#d-last-report');
+  if (repEl) {
+    const lastDone = allSessions.find(s=>['completed','failed','interrupted'].includes(s.status));
+    if (lastDone) {
+      try {
+        const s = await api(`/api/sessions/${lastDone.id}`);
+        repEl.innerHTML = s.report ? `
+          <div class="section-h">Rapport de la dernière session
+            <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11.5px;color:var(--muted)"> — n°${s.number}
+              · <span class="st ${s.status}">${s.status}</span>
+              · ${fmtTs(s.started_at)}</span>
+          </div>
+          <div class="panel" style="margin-bottom:12px"><div class="md-body">${mdToHtml(s.report)}</div>
+            ${s.next_objective?`<div class="report-next">➡ Prochaine : ${esc(s.next_objective)}</div>`:''}
+          </div>` : '';
+      } catch(e) { repEl.innerHTML = ''; }
+    } else { repEl.innerHTML = ''; }
+  }
+
+  // ---- Onglet 1 : ressources liées à l'agent ----
+  const resEl = $('#d-agent-resources');
+  if (resEl) {
+    const ico = k => k==='file'?'📄':k==='link'?'🔗':'📝';
+    resEl.innerHTML = agentResources.length ? `
+      <div class="section-h">Ressources liées à cet agent</div>
+      <div class="card-list" style="margin-bottom:12px">
+        ${agentResources.map(r=>`
+          <div class="res-row" onclick="previewResource(${r.id})">
+            <span class="ico">${ico(r.kind)}</span>
+            <div class="grow"><div class="rname">${esc(r.name)}</div>
+              <div class="rsub">${esc(r.description||'')}${r.size?' · '+fmtSize(r.size):''}</div></div>
+            <button class="small danger" onclick="event.stopPropagation();delResource(${r.id})">×</button>
+          </div>`).join('')}
+        <div style="padding:6px 0"><button class="small secondary" onclick="dlgResource.showModal()">+ Ajouter une ressource</button></div>
+      </div>` : `
+      <div class="section-h">Ressources liées à cet agent</div>
+      <div style="margin-bottom:12px">
+        <div class="empty" style="padding:10px 0;text-align:left">Aucune ressource liée à cet agent.</div>
+        <button class="small secondary" onclick="dlgResource.showModal()">+ Ajouter</button>
+      </div>`;
+  }
 
   // ---- Onglet 1 : notifications de l'agent ----
   const nEl = $('#d-agent-notifs');
