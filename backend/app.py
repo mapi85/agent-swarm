@@ -177,6 +177,7 @@ class LinkResource(BaseModel):
 
 class ProjectCreate(BaseModel):
     mission: str = Field(min_length=1)
+    profile_id: int | None = None
 
 
 class ProviderCreate(BaseModel):
@@ -869,8 +870,8 @@ def _project_payload(proj: dict) -> dict:
 
 
 @app.get("/api/projects")
-def projects_list(include_archived: bool = False):
-    return [_project_payload(p) for p in db.list_projects(include_archived)]
+def projects_list(include_archived: bool = False, profile_id: int | None = None):
+    return [_project_payload(p) for p in db.list_projects(include_archived, profile_id)]
 
 
 @app.get("/api/projects/{pid}")
@@ -889,7 +890,7 @@ async def projects_create(body: ProjectCreate):
     except Exception as exc:
         raise HTTPException(502, f"Échec de la planification : {exc}")
     pid = db.create_project(plan.get("title") or body.mission[:60], body.mission,
-                            plan.get("summary", ""), plan)
+                            plan.get("summary", ""), plan, body.profile_id)
     return _project_payload(db.get_project(pid))
 
 

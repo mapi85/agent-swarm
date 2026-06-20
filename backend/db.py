@@ -206,6 +206,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("INSERT OR IGNORE INTO profiles (name, created_at) VALUES ('Par défaut', ?)", (ts,))
         default_pid = conn.execute("SELECT id FROM profiles WHERE name = 'Par défaut'").fetchone()["id"]
         conn.execute("UPDATE agents SET profile_id = ? WHERE profile_id IS NULL", (default_pid,))
+    pjcols = {r["name"] for r in conn.execute("PRAGMA table_info(projects)")}
+    if "profile_id" not in pjcols:
+        conn.execute("ALTER TABLE projects ADD COLUMN profile_id INTEGER REFERENCES profiles(id)")
     scols = {r["name"] for r in conn.execute("PRAGMA table_info(sessions)")}
     if "user_note" not in scols:
         conn.execute("ALTER TABLE sessions ADD COLUMN user_note TEXT")
@@ -832,11 +835,11 @@ def memory_delete(agent_id, scope, task_id, key) -> None:
 
 # ---------- Projets / missions ----------
 
-def create_project(title, mission, summary, plan) -> int:
+def create_project(title, mission, summary, plan, profile_id=None) -> int:
     return execute(
-        "INSERT INTO projects (title, mission, summary, plan, status, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, 'proposed', ?, ?)",
-        (title, mission, summary, json.dumps(plan, ensure_ascii=False), now(), now()),
+        "INSERT INTO projects (title, mission, summary, plan, status, profile_id, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, 'proposed', ?, ?, ?)",
+        (title, mission, summary, json.dumps(plan, ensure_ascii=False), profile_id, now(), now()),
     )
 
 
@@ -844,10 +847,15 @@ def get_project(pid: int) -> dict | None:
     return query_one("SELECT * FROM projects WHERE id = ?", (pid,))
 
 
-def list_projects(include_archived=False) -> list[dict]:
-    if include_archived:
-        return query("SELECT * FROM projects ORDER BY id DESC")
-    return query("SELECT * FROM projects WHERE status != 'archived' ORDER BY id DESC")
+def list_projects(include_archived=False, profile_id=None) -> list[dict]:
+    clauses, params = [], []
+    if not include_archived:
+        clauses.append("status != 'archived'")
+    if profile_id is not None:
+        clauses.append("profile_id = ?")
+        params.append(profile_id)
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    return query(f"SELECT * FROM projects {where} ORDER BY id DESC", tuple(params))
 
 
 def update_project(pid: int, **fields) -> None:

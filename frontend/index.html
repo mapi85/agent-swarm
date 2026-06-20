@@ -1526,7 +1526,8 @@ async function populateSelects(){
   keep($('#r-agent'), opts, '<option value="">Tous les agents</option>');
   if ($('#rf-agent')) $('#rf-agent').innerHTML = opts;
   try {
-    const projs = await api('/api/projects?include_archived=true');
+    const pqs2 = profileQs();
+    const projs = await api('/api/projects?include_archived=true'+(pqs2?`&${pqs2}`:''));
     keep($('#r-project'), projs.map(p=>`<option value="${p.id}">#${p.id} ${esc(p.title)}</option>`).join(''),
          '<option value="">Toutes les missions</option>');
   } catch(e){ console.error(e); }
@@ -1767,7 +1768,7 @@ async function proposePlan(){
   if(!mission){ alert('Décris la mission'); return; }
   const btn=$('#m-plan-btn'); btn.disabled=true; $('#m-msg').textContent='Le superviseur élabore le plan…';
   try{
-    await api('/api/projects',{method:'POST',body:JSON.stringify({mission})});
+    await api('/api/projects',{method:'POST',body:JSON.stringify({mission, profile_id: currentProfileId||null})});
     $('#m-mission').value=''; $('#m-msg').textContent='';
     loadProjects();
   }catch(e){ $('#m-msg').textContent=''; alert(e.message); }
@@ -1793,7 +1794,9 @@ function computeWaves(tasks){
 const TASK_ICO = {done:'✅', failed:'❌', cancelled:'⛔', in_progress:'⏳', pending:'•'};
 async function loadProjects(){
   const arch = $('#m-archived').checked;
-  projects = await api('/api/projects'+(arch?'?include_archived=true':''));
+  const pqs = profileQs();
+  const q = [arch?'include_archived=true':'', pqs].filter(Boolean).join('&');
+  projects = await api('/api/projects'+(q?`?${q}`:''));
   renderProjects();
 }
 function renderProjects(){
