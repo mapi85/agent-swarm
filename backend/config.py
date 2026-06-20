@@ -44,6 +44,8 @@ MAX_REPEAT_TOOL_CALLS = int(os.getenv("MAX_REPEAT_TOOL_CALLS", "4"))
 # Sécurité
 # Allowlist e-mail : domaines et/ou adresses autorisés (séparés par des virgules ; vide = tout permis)
 EMAIL_ALLOWLIST = [x.strip().lower() for x in os.getenv("EMAIL_ALLOWLIST", "").split(",") if x.strip()]
+# Mot de passe de l'interface (vide = accès libre, aucune page de connexion)
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 # Motifs shell interdits (regex, séparés par des « ;;; »)
 _DEFAULT_DENY = r"rm\s+-rf\s+/(?:\s|$);;;\bmkfs\b;;;\b:\(\)\s*\{.*\};:;;;\bdd\s+if=.*of=/dev/[sh]d"
 SHELL_DENY_PATTERNS = [p for p in os.getenv("SHELL_DENY_PATTERNS", _DEFAULT_DENY).split(";;;") if p.strip()]

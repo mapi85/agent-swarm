@@ -263,17 +263,16 @@
   .md-compact>:first-child{margin-top:0} .md-compact>:last-child{margin-bottom:0}
   /* tables de stats : défilement horizontal si trop étroit */
   #dash-tok-agent,#dash-tok-category,#dash-tok-provider,#dash-tok-project{overflow-x:auto}
-  /* ===== Profils ===== */
-  #profile-overlay{position:fixed;inset:0;z-index:100;background:rgba(20,30,50,.6);display:flex;align-items:center;justify-content:center}
+  /* ===== Login / profils ===== */
+  #profile-overlay{position:fixed;inset:0;z-index:100;background:rgba(20,30,50,.7);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center}
   #profile-overlay.hidden{display:none}
-  .profile-card{background:var(--panel);border-radius:14px;padding:28px;width:480px;max-width:94vw;box-shadow:0 20px 60px rgba(20,30,50,.3)}
-  .profile-card h2{margin:0 0 6px;font-size:20px}
-  .profile-card .psub{color:var(--muted);margin-bottom:18px;font-size:13px}
-  .profile-list{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
-  .profile-item{display:flex;align-items:center;gap:12px;background:var(--panel2);border:2px solid var(--border);border-radius:9px;padding:12px 14px;cursor:pointer;transition:.15s}
-  .profile-item:hover{border-color:var(--accent);background:var(--accent-soft)}
-  .pi-name{font-weight:650;font-size:15px}
-  .pi-sub{color:var(--muted);font-size:12.5px}
+  .profile-card{background:var(--panel);border-radius:14px;padding:32px 36px;width:400px;max-width:94vw;box-shadow:0 20px 60px rgba(20,30,50,.35);display:flex;flex-direction:column;gap:12px}
+  .profile-card h2{margin:0;font-size:20px;text-align:center}
+  .profile-card .psub{color:var(--muted);font-size:13px;text-align:center;margin:0}
+  .profile-card label{font-weight:600;font-size:13px;margin-bottom:-6px}
+  .profile-card select,.profile-card input{width:100%;box-sizing:border-box}
+  .login-err{color:var(--red);font-size:12px;min-height:15px}
+  .profile-card .full{margin-top:4px}
   .pi-ico{font-size:22px}
   .logo-hex{display:inline-block;flex:none}
   .profile-chip{display:inline-flex;align-items:center;gap:6px;background:var(--accent-soft);color:var(--accent);border:1px solid #cfe0fb;border-radius:16px;padding:4px 11px;font-size:12px;cursor:pointer;margin-left:8px;flex:none;font-weight:600}
@@ -363,16 +362,23 @@
 </head>
 <body>
 
-<!-- ===== Overlay sélection de profil ===== -->
+<!-- ===== Overlay connexion / profil ===== -->
 <div id="profile-overlay" class="hidden">
   <div class="profile-card">
-    <h2>⬡ L'Essaim</h2>
-    <div class="psub">Choisir un profil pour filtrer les agents affichés.</div>
-    <div class="profile-list" id="profile-list"></div>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <input id="new-profile-name" placeholder="Nom du nouveau profil…" style="flex:1;min-width:140px">
-      <button class="small" onclick="createAndSelectProfile()">+ Créer</button>
+    <h2><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" style="vertical-align:-2px;margin-right:5px"><polygon points="12,2 21.5,7 21.5,17 12,22 2.5,17 2.5,7" fill="#2f6fed"/><text x="12" y="16.5" text-anchor="middle" fill="#fff" font-size="9.5" font-weight="700" font-family="Segoe UI,system-ui,sans-serif">LE</text></svg>L'Essaim</h2>
+    <div class="psub" id="login-subtitle">Choisissez un profil pour accéder</div>
+    <label for="login-profile-sel">Profil</label>
+    <select id="login-profile-sel" onchange="onLoginProfileChange()">
+      <option value="">🌐 Tous les agents</option>
+    </select>
+    <div id="login-new-wrap" style="display:none">
+      <label for="login-new-name" style="display:block;font-weight:600;font-size:13px;margin-bottom:4px">Nom du profil</label>
+      <input id="login-new-name" placeholder="Nom du nouveau profil…">
     </div>
+    <label for="login-pwd" id="login-pwd-label">Mot de passe</label>
+    <input id="login-pwd" type="password" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()">
+    <div class="login-err" id="login-err"></div>
+    <button class="full" onclick="doLogin()">Se connecter</button>
   </div>
 </div>
 
@@ -666,43 +672,83 @@ let hidePastSessions = localStorage.getItem('hidePastSessions') === '1';
 let currentProfileId = null, currentProfileName = null;
 let dashPeriod = null;   // null = tout, '7d', '24h'
 let activeDetailTab = 0;
+let authToken = localStorage.getItem('authToken') || '';
+let appReady = false;
 // État d'ouverture des tuiles rétractables (préservé lors des rafraîchissements périodiques)
 const openTasks = new Set(), projState = new Map();
 function trackOpen(set, el, id){ if(el.open) set.add(id); else set.delete(id); }
 
-/* ===== Profils ===== */
+/* ===== Auth + Profils ===== */
+function showLogin(subtitle){
+  populateLoginSelect();
+  $('#login-subtitle').textContent = subtitle || 'Choisissez un profil pour accéder';
+  $('#login-err').textContent = '';
+  $('#login-pwd').value = '';
+  $('#profile-overlay').classList.remove('hidden');
+  setTimeout(()=>$('#login-pwd').focus(), 80);
+}
+function populateLoginSelect(){
+  const sel = $('#login-profile-sel'); if(!sel) return;
+  sel.innerHTML = `<option value="">🌐 Tous les agents</option>` +
+    profilesList.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('') +
+    `<option value="__new__">✚ Nouveau profil…</option>`;
+  if (currentProfileId) sel.value = currentProfileId;
+}
+function onLoginProfileChange(){
+  $('#login-new-wrap').style.display = $('#login-profile-sel').value==='__new__'?'':'none';
+}
+async function doLogin(){
+  const sel = $('#login-profile-sel').value;
+  const pwd = $('#login-pwd').value;
+  const errEl = $('#login-err');
+  errEl.textContent = '';
+  const body = {password: pwd};
+  if (sel === '__new__'){
+    const name = $('#login-new-name').value.trim();
+    if (!name){ errEl.textContent = 'Entrez un nom de profil'; return; }
+    body.new_profile_name = name;
+  } else if (sel) {
+    body.profile_id = +sel;
+  }
+  try {
+    const r = await fetch('/api/auth/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    if (!r.ok){ const e=await r.json().catch(()=>({})); errEl.textContent=e.detail||'Erreur de connexion'; return; }
+    const data = await r.json();
+    authToken = data.token || '';
+    localStorage.setItem('authToken', authToken);
+    // Rafraîchir la liste des profils si un nouveau a été créé
+    if (sel === '__new__') profilesList = await fetch('/api/profiles').then(r=>r.json());
+    const profile = profilesList.find(p=>p.id===data.profile_id);
+    const profileName = profile?.name || 'Tous les agents';
+    $('#login-new-name' ) && ($('#login-new-name').value = '');
+    selectProfile(data.profile_id, profileName);
+  } catch(e){ errEl.textContent = e.message; }
+}
 async function initProfiles(){
   try {
-    profilesList = await api('/api/profiles');
+    // GET /api/profiles est public — pas besoin de token
+    profilesList = await fetch('/api/profiles').then(r=>r.json());
+    populateLoginSelect();
+
+    // Vérifier le token courant
+    const h = authToken ? {'Authorization':'Bearer '+authToken} : {};
+    const vr = await fetch('/api/auth/verify', {headers:h});
+    if (!vr.ok){ showLogin(); return; }
+    const vdata = await vr.json();
+
+    // Token valide (ou pas de mot de passe requis) : restaurer le profil
     const saved = sessionStorage.getItem('profileId');
     const savedName = sessionStorage.getItem('profileName');
-    if (saved && profilesList.find(p=>p.id===+saved)){
-      currentProfileId = +saved; currentProfileName = savedName;
-      updateProfileChip();
-    } else {
-      openProfileOverlay();
+    if (saved !== null){
+      currentProfileId = saved ? +saved : null;
+      currentProfileName = savedName || 'Tous les agents';
     }
-  } catch(e) { console.error(e); }
+    updateProfileChip();
+    appReady = true;
+  } catch(e){ showLogin(); }
 }
 function openProfileOverlay(){
-  renderProfileList();
-  $('#profile-overlay').classList.remove('hidden');
-}
-function renderProfileList(){
-  // JSON.stringify produit des guillemets doubles : on les encode pour ne pas casser l'attribut onclick="..."
-  const ej = s => esc(JSON.stringify(s));
-  $('#profile-list').innerHTML = profilesList.map(p=>`
-    <div class="profile-item" onclick="selectProfile(${p.id},${ej(p.name)})">
-      <span class="pi-ico">👤</span>
-      <div><div class="pi-name">${esc(p.name)}</div>
-        <div class="pi-sub">${p.agents_count} agent(s)</div></div>
-    </div>`).join('') + `
-    <div class="profile-item" onclick="selectProfile(null,${ej('Tous les agents')})"
-      style="${!currentProfileId?'border-color:var(--accent);background:var(--accent-soft)':''}">
-      <span class="pi-ico">🌐</span>
-      <div><div class="pi-name">Tous les agents</div>
-        <div class="pi-sub">Vue globale sans filtre de profil</div></div>
-    </div>`;
+  showLogin('Changer de profil — saisissez le mot de passe');
 }
 function selectProfile(id, name){
   currentProfileId = id; currentProfileName = name;
@@ -710,26 +756,16 @@ function selectProfile(id, name){
   sessionStorage.setItem('profileName', name ?? '');
   $('#profile-overlay').classList.add('hidden');
   updateProfileChip();
-  // Réinitialise toutes les données du profil précédent
   overview = {}; agents = []; resources = []; artifacts = [];
   selectedAgent = null; selectedSession = null;
   artPath = ''; detailArtPath = '';
   const d = $('#detail');
   if (d) d.innerHTML = '<div class="placeholder">Sélectionne un agent pour le superviser.</div>';
+  appReady = true;
   refresh();
 }
 function updateProfileChip(){
   $('#profile-chip-name').textContent = currentProfileName || 'Tous les agents';
-}
-async function createAndSelectProfile(){
-  const name = $('#new-profile-name').value.trim();
-  if (!name) return;
-  try {
-    const r = await api('/api/profiles', {method:'POST', body:JSON.stringify({name})});
-    profilesList = await api('/api/profiles');
-    selectProfile(r.id, name);
-    $('#new-profile-name').value = '';
-  } catch(e) { alert(e.message); }
 }
 function profileQs(){ return currentProfileId ? `profile_id=${currentProfileId}` : ''; }
 function qs(params){ const p=Object.entries({...params}).filter(([,v])=>v!=null&&v!=='').map(([k,v])=>`${k}=${v}`).join('&'); return p?`?${p}`:''; }
@@ -742,7 +778,10 @@ function setDashPeriod(p, btn){
 }
 
 const api = async (url, opts) => {
-  const r = await fetch(url, opts ? {headers:{'Content-Type':'application/json'}, ...opts} : undefined);
+  const h = {'Content-Type': 'application/json'};
+  if (authToken) h['Authorization'] = 'Bearer ' + authToken;
+  const r = await fetch(url, {headers: h, ...(opts || {})});
+  if (r.status === 401) { showLogin('Session expirée — reconnectez-vous'); throw new Error('Non authentifié'); }
   if (!r.ok) { const e = await r.json().catch(()=>({detail:r.statusText})); throw new Error(e.detail||r.statusText); }
   return r.status===204 ? null : r.json();
 };
@@ -1526,7 +1565,8 @@ async function createResource(){
       const f=$('#rf-file').files[0]; if(!f){alert('Choisis un fichier');return;}
       const fd=new FormData(); fd.append('file',f); fd.append('scope',scope); fd.append('description',$('#rf-desc').value);
       if(agent_id) fd.append('agent_id',agent_id); if(task_id) fd.append('task_id',task_id);
-      const r=await fetch('/api/resources/upload',{method:'POST',body:fd}); if(!r.ok)throw new Error((await r.json()).detail);
+      const uploadH = authToken ? {'Authorization':'Bearer '+authToken} : {};
+      const r=await fetch('/api/resources/upload',{method:'POST',body:fd,headers:uploadH}); if(!r.ok)throw new Error((await r.json()).detail);
     } else {
       await api('/api/resources/link',{method:'POST',body:JSON.stringify({
         scope, name:$('#rf-name').value.trim(), content:$('#rf-content').value, kind:type,
@@ -1952,7 +1992,8 @@ function switchDetailTab(idx){
 
 initProfiles().then(()=>{
   if (localStorage.getItem('hideIdleAgents') === '1') { const c=$('#ag-active'); if(c) c.checked=true; }
-  refresh(); setInterval(refresh, 3000);
+  if (appReady) refresh();
+  setInterval(()=>{ if(appReady) refresh(); }, 3000);
 });
 </script>
 </body>

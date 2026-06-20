@@ -1,13 +1,17 @@
 """Service back de l'essaim d'agents : API REST + supervision + planificateur."""
 import asyncio
+import base64
+import hashlib
+import hmac as _hmac
 import json
 import logging
 import re
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -30,6 +34,83 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Essaim d'agents", lifespan=lifespan)
+
+
+# ---------------------------------------------------------------------------
+# Auth (mot de passe unique, optionnel)
+# ---------------------------------------------------------------------------
+
+_TOKEN_TTL = 86400 * 30   # 30 jours
+
+def _token_secret() -> str:
+    return hashlib.sha256(config.ADMIN_PASSWORD.encode()).hexdigest()
+
+def _create_token(profile_id) -> str:
+    payload = json.dumps({"pid": profile_id, "exp": int(time.time()) + _TOKEN_TTL}, separators=(",", ":"))
+    sig = _hmac.new(_token_secret().encode(), payload.encode(), hashlib.sha256).hexdigest()
+    return base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=") + "." + sig
+
+def _verify_token(token: str):
+    try:
+        p64, sig = token.rsplit(".", 1)
+        payload = base64.urlsafe_b64decode(p64 + "==").decode()
+        expected = _hmac.new(_token_secret().encode(), payload.encode(), hashlib.sha256).hexdigest()
+        if not _hmac.compare_digest(sig, expected):
+            return None
+        data = json.loads(payload)
+        return data if data.get("exp", 0) >= int(time.time()) else None
+    except Exception:
+        return None
+
+_AUTH_PUBLIC = {"/api/auth/login", "/api/auth/verify"}
+
+@app.middleware("http")
+async def _auth_middleware(request: Request, call_next):
+    path = request.url.path
+    if not path.startswith("/api/") or path in _AUTH_PUBLIC:
+        return await call_next(request)
+    if path == "/api/profiles" and request.method == "GET":
+        return await call_next(request)
+    if not config.ADMIN_PASSWORD:           # pas de mot de passe → accès libre
+        return await call_next(request)
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:] if auth.startswith("Bearer ") else ""
+    if not token or not _verify_token(token):
+        return JSONResponse({"detail": "Non authentifié"}, status_code=401)
+    return await call_next(request)
+
+
+class LoginBody(BaseModel):
+    password: str = ""
+    profile_id: int | None = None
+    new_profile_name: str | None = None
+
+@app.post("/api/auth/login")
+def auth_login(body: LoginBody):
+    if config.ADMIN_PASSWORD and not _hmac.compare_digest(
+            body.password.encode(), config.ADMIN_PASSWORD.encode()):
+        raise HTTPException(403, "Mot de passe incorrect")
+    pid = body.profile_id
+    if body.new_profile_name:
+        name = body.new_profile_name.strip()
+        if not name:
+            raise HTTPException(400, "Nom de profil vide")
+        if db.query_one("SELECT id FROM profiles WHERE name = ?", (name,)):
+            raise HTTPException(409, f"Un profil nommé '{name}' existe déjà.")
+        pid = db.create_profile(name)
+    token = _create_token(pid) if config.ADMIN_PASSWORD else "open"
+    return {"token": token, "profile_id": pid}
+
+@app.get("/api/auth/verify")
+def auth_verify(request: Request):
+    if not config.ADMIN_PASSWORD:
+        return {"ok": True, "open": True, "profile_id": None}
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:] if auth.startswith("Bearer ") else ""
+    data = _verify_token(token)
+    if not data:
+        raise HTTPException(401, "Token invalide ou expiré")
+    return {"ok": True, "profile_id": data.get("pid")}
 
 
 # ---------------------------------------------------------------------------
