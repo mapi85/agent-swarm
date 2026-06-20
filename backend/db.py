@@ -13,6 +13,12 @@ _conn: sqlite3.Connection | None = None
 DEFAULT_ANTHROPIC_MODELS = ("claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5")
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS profiles (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT UNIQUE NOT NULL,
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS agents (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT UNIQUE NOT NULL,
@@ -24,6 +30,7 @@ CREATE TABLE IF NOT EXISTS agents (
     category    TEXT NOT NULL DEFAULT '',              -- thème de regroupement (libre)
     max_iterations INTEGER NOT NULL DEFAULT 60,
     session_token_budget INTEGER NOT NULL DEFAULT 0,
+    profile_id  INTEGER REFERENCES profiles(id),       -- NULL = agent système (visible tous profils)
     created_at  TEXT NOT NULL
 );
 
@@ -192,6 +199,13 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE agents ADD COLUMN provider_id INTEGER")
     if "category" not in acols:
         conn.execute("ALTER TABLE agents ADD COLUMN category TEXT NOT NULL DEFAULT ''")
+    if "profile_id" not in acols:
+        conn.execute("ALTER TABLE agents ADD COLUMN profile_id INTEGER REFERENCES profiles(id)")
+        # Migration : créer le profil Par défaut et y rattacher tous les agents existants.
+        ts = now()
+        conn.execute("INSERT OR IGNORE INTO profiles (name, created_at) VALUES ('Par défaut', ?)", (ts,))
+        default_pid = conn.execute("SELECT id FROM profiles WHERE name = 'Par défaut'").fetchone()["id"]
+        conn.execute("UPDATE agents SET profile_id = ? WHERE profile_id IS NULL", (default_pid,))
     scols = {r["name"] for r in conn.execute("PRAGMA table_info(sessions)")}
     if "user_note" not in scols:
         conn.execute("ALTER TABLE sessions ADD COLUMN user_note TEXT")
@@ -274,12 +288,12 @@ def execute(sql: str, params: tuple = ()) -> int:
 # ---------- Agents ----------
 
 def create_agent(name, description, mission_prompt, model, effort, max_iterations,
-                 session_token_budget=0, provider_id=None, category="") -> int:
+                 session_token_budget=0, provider_id=None, category="", profile_id=None) -> int:
     return execute(
         "INSERT INTO agents (name, description, mission_prompt, model, effort, max_iterations, "
-        "session_token_budget, provider_id, category, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "session_token_budget, provider_id, category, profile_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (name, description, mission_prompt, model, effort, max_iterations, session_token_budget,
-         provider_id, category, now()),
+         provider_id, category, profile_id, now()),
     )
 
 
@@ -291,8 +305,33 @@ def get_agent_by_name(name: str) -> dict | None:
     return query_one("SELECT * FROM agents WHERE name = ?", (name,))
 
 
-def list_agents() -> list[dict]:
+def list_agents(profile_id: int | None = None) -> list[dict]:
+    """Retourne les agents du profil donné + les agents système (profile_id IS NULL).
+    Sans profil, retourne tous les agents."""
+    if profile_id is not None:
+        return query("SELECT * FROM agents WHERE profile_id = ? OR profile_id IS NULL ORDER BY id",
+                     (profile_id,))
     return query("SELECT * FROM agents ORDER BY id")
+
+
+# ---------- Profils ----------
+
+def list_profiles() -> list[dict]:
+    return query("SELECT p.*, COUNT(a.id) AS agents_count FROM profiles p "
+                 "LEFT JOIN agents a ON a.profile_id = p.id GROUP BY p.id ORDER BY p.id")
+
+
+def create_profile(name: str) -> int:
+    return execute("INSERT INTO profiles (name, created_at) VALUES (?, ?)", (name, now()))
+
+
+def get_profile(pid: int) -> dict | None:
+    return query_one("SELECT * FROM profiles WHERE id = ?", (pid,))
+
+
+def delete_profile(pid: int) -> None:
+    execute("UPDATE agents SET profile_id = NULL WHERE profile_id = ?", (pid,))
+    execute("DELETE FROM profiles WHERE id = ?", (pid,))
 
 
 def set_agent_status(agent_id: int, status: str) -> None:
@@ -517,28 +556,48 @@ def provider_in_use(pid: int) -> int:
 
 # ---------- Statistiques de tokens ----------
 
-def tokens_by_agent() -> list[dict]:
+def _since_cutoff(period: str | None) -> str | None:
+    """Retourne un timestamp ISO cutoff selon la période ('24h', '7d', None=tout)."""
+    if period == "24h":
+        return (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(timespec="seconds")
+    if period == "7d":
+        return (datetime.now(timezone.utc) - timedelta(days=7)).isoformat(timespec="seconds")
+    return None
+
+
+def tokens_by_agent(period: str | None = None) -> list[dict]:
+    since = _since_cutoff(period)
+    date_filter = "AND COALESCE(s.started_at,'') >= ?" if since else ""
+    params = (since,) if since else ()
     return query(
-        "SELECT a.id, a.name, COALESCE(SUM(s.input_tokens),0) AS input_tokens, "
-        "COALESCE(SUM(s.output_tokens),0) AS output_tokens, COUNT(s.id) AS sessions "
-        "FROM agents a LEFT JOIN sessions s ON s.agent_id = a.id "
-        "GROUP BY a.id ORDER BY input_tokens + output_tokens DESC")
+        f"SELECT a.id, a.name, COALESCE(SUM(s.input_tokens),0) AS input_tokens, "
+        f"COALESCE(SUM(s.output_tokens),0) AS output_tokens, COUNT(s.id) AS sessions "
+        f"FROM agents a LEFT JOIN sessions s ON s.agent_id = a.id {date_filter} "
+        f"GROUP BY a.id ORDER BY input_tokens + output_tokens DESC", params)
 
 
-def tokens_by_provider() -> list[dict]:
+def tokens_by_provider(period: str | None = None) -> list[dict]:
+    since = _since_cutoff(period)
+    date_filter = "AND COALESCE(started_at,'') >= ?" if since else ""
+    params = (since,) if since else ()
     return query(
-        "SELECT COALESCE(provider, '(inconnu)') AS provider, SUM(input_tokens) AS input_tokens, "
-        "SUM(output_tokens) AS output_tokens, COUNT(*) AS sessions "
-        "FROM sessions WHERE input_tokens + output_tokens > 0 "
-        "GROUP BY COALESCE(provider, '(inconnu)') ORDER BY input_tokens + output_tokens DESC")
+        f"SELECT COALESCE(provider, '(inconnu)') AS provider, SUM(input_tokens) AS input_tokens, "
+        f"SUM(output_tokens) AS output_tokens, COUNT(*) AS sessions "
+        f"FROM sessions WHERE input_tokens + output_tokens > 0 {date_filter} "
+        f"GROUP BY COALESCE(provider, '(inconnu)') ORDER BY input_tokens + output_tokens DESC", params)
 
 
-def tokens_by_project() -> list[dict]:
+def tokens_by_project(period: str | None = None) -> list[dict]:
+    since = _since_cutoff(period)
+    date_filter = "AND COALESCE(s2.started_at,'') >= ?" if since else ""
+    params = (since,) if since else ()
     return query(
-        "SELECT p.id, p.title, p.status, COALESCE(SUM(t.input_tokens),0) AS input_tokens, "
-        "COALESCE(SUM(t.output_tokens),0) AS output_tokens "
-        "FROM projects p LEFT JOIN tasks t ON t.project_id = p.id "
-        "GROUP BY p.id ORDER BY p.id DESC")
+        f"SELECT p.id, p.title, p.status, COALESCE(SUM(t.input_tokens),0) AS input_tokens, "
+        f"COALESCE(SUM(t.output_tokens),0) AS output_tokens "
+        f"FROM projects p LEFT JOIN tasks t ON t.project_id = p.id "
+        f"LEFT JOIN sessions s2 ON s2.id = t.session_id "
+        f"WHERE 1=1 {date_filter} "
+        f"GROUP BY p.id ORDER BY p.id DESC", params)
 
 
 def add_task_tokens(task_id: int, input_tokens: int, output_tokens: int) -> None:
@@ -546,39 +605,56 @@ def add_task_tokens(task_id: int, input_tokens: int, output_tokens: int) -> None
             "WHERE id = ?", (input_tokens, output_tokens, task_id))
 
 
-def tokens_summary() -> dict:
+def tokens_summary(period: str | None = None) -> dict:
     """Totaux, moyennes et extrêmes sur les sessions ayant consommé des tokens."""
+    since = _since_cutoff(period)
+    date_filter = "AND COALESCE(started_at,'') >= ?" if since else ""
+    params = (since,) if since else ()
     row = query_one(
-        "SELECT COUNT(*) AS sessions, COALESCE(SUM(input_tokens),0) AS input_tokens, "
-        "COALESCE(SUM(output_tokens),0) AS output_tokens, "
-        "COALESCE(MAX(input_tokens + output_tokens),0) AS max_session "
-        "FROM sessions WHERE input_tokens + output_tokens > 0")
+        f"SELECT COUNT(*) AS sessions, COALESCE(SUM(input_tokens),0) AS input_tokens, "
+        f"COALESCE(SUM(output_tokens),0) AS output_tokens, "
+        f"COALESCE(MAX(input_tokens + output_tokens),0) AS max_session "
+        f"FROM sessions WHERE input_tokens + output_tokens > 0 {date_filter}", params)
     completed = query_one(
-        "SELECT COUNT(*) AS c FROM sessions WHERE status = 'completed'")["c"]
+        f"SELECT COUNT(*) AS c FROM sessions WHERE status = 'completed' {date_filter}", params)["c"]
     total = row["input_tokens"] + row["output_tokens"]
     row["total"] = total
     row["avg_session"] = round(total / row["sessions"]) if row["sessions"] else 0
     row["completed_sessions"] = completed
+    # Tokens des dernières 24h (toujours inclus pour les KPIs du dashboard)
+    cutoff_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(timespec="seconds")
+    r24 = query_one(
+        "SELECT COALESCE(SUM(input_tokens),0) AS input_tokens, "
+        "COALESCE(SUM(output_tokens),0) AS output_tokens "
+        "FROM sessions WHERE COALESCE(started_at,'') >= ?", (cutoff_24h,))
+    row["last_24h"] = {"input_tokens": r24["input_tokens"], "output_tokens": r24["output_tokens"]}
     return row
 
 
-def tokens_by_day(days: int = 30) -> list[dict]:
+def tokens_by_day(days: int = 30, period: str | None = None) -> list[dict]:
     """Consommation agrégée par jour (sur la date de démarrage des sessions)."""
+    since = _since_cutoff(period)
+    date_filter = "AND started_at >= ?" if since else ""
+    params_day = (since, days) if since else (days,)
     return query(
-        "SELECT substr(started_at, 1, 10) AS day, SUM(input_tokens) AS input_tokens, "
-        "SUM(output_tokens) AS output_tokens, COUNT(*) AS sessions "
-        "FROM sessions WHERE started_at IS NOT NULL AND input_tokens + output_tokens > 0 "
-        "GROUP BY day ORDER BY day DESC LIMIT ?", (days,))
+        f"SELECT substr(started_at, 1, 10) AS day, SUM(input_tokens) AS input_tokens, "
+        f"SUM(output_tokens) AS output_tokens, COUNT(*) AS sessions "
+        f"FROM sessions WHERE started_at IS NOT NULL AND input_tokens + output_tokens > 0 {date_filter} "
+        f"GROUP BY day ORDER BY day DESC LIMIT ?", params_day)
 
 
-def tokens_by_category() -> list[dict]:
+def tokens_by_category(period: str | None = None) -> list[dict]:
     """Consommation agrégée par thème d'agent."""
+    since = _since_cutoff(period)
+    date_filter = "AND COALESCE(s.started_at,'') >= ?" if since else ""
+    params = (since,) if since else ()
     return query(
-        "SELECT CASE WHEN a.category = '' THEN '(sans thème)' ELSE a.category END AS category, "
-        "COALESCE(SUM(s.input_tokens),0) AS input_tokens, COALESCE(SUM(s.output_tokens),0) AS output_tokens, "
-        "COUNT(s.id) AS sessions FROM agents a LEFT JOIN sessions s ON s.agent_id = a.id "
-        "GROUP BY a.category HAVING input_tokens + output_tokens > 0 "
-        "ORDER BY input_tokens + output_tokens DESC")
+        f"SELECT CASE WHEN a.category = '' THEN '(sans thème)' ELSE a.category END AS category, "
+        f"COALESCE(SUM(s.input_tokens),0) AS input_tokens, COALESCE(SUM(s.output_tokens),0) AS output_tokens, "
+        f"COUNT(s.id) AS sessions FROM agents a LEFT JOIN sessions s ON s.agent_id = a.id "
+        f"WHERE 1=1 {date_filter} "
+        f"GROUP BY a.category HAVING input_tokens + output_tokens > 0 "
+        f"ORDER BY input_tokens + output_tokens DESC", params)
 
 
 def agent_categories() -> list[str]:
@@ -600,14 +676,19 @@ def get_notification(nid: int) -> dict | None:
     return query_one("SELECT * FROM notifications WHERE id = ?", (nid,))
 
 
-def list_notifications(status: str | None = None) -> list[dict]:
+def list_notifications(status: str | None = None, agent_id: int | None = None,
+                       type_: str | None = None) -> list[dict]:
+    clauses, params = [], []
     if status:
-        rows = query("SELECT n.*, a.name AS agent_name FROM notifications n JOIN agents a ON a.id = n.agent_id "
-                     "WHERE n.status = ? ORDER BY n.id DESC LIMIT 200", (status,))
-    else:
-        rows = query("SELECT n.*, a.name AS agent_name FROM notifications n JOIN agents a ON a.id = n.agent_id "
-                     "ORDER BY n.id DESC LIMIT 200")
-    return rows
+        clauses.append("n.status = ?"); params.append(status)
+    if agent_id is not None:
+        clauses.append("n.agent_id = ?"); params.append(agent_id)
+    if type_:
+        clauses.append("n.type = ?"); params.append(type_)
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    return query(f"SELECT n.*, a.name AS agent_name FROM notifications n "
+                 f"JOIN agents a ON a.id = n.agent_id {where} ORDER BY n.id DESC LIMIT 200",
+                 tuple(params))
 
 
 def answer_notification(nid: int, response: str) -> None:

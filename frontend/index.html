@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Essaim d'agents — Supervision</title>
+<title>L'Essaim — Supervision</title>
 <style>
   :root{
     --bg:#f4f6fa; --panel:#ffffff; --panel2:#f0f3f8; --border:#dbe1ea;
@@ -100,7 +100,7 @@
   .agent-card.selected{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
   .agent-card .row1{display:flex;align-items:center;gap:8px}
   .agent-card .name{font-weight:650}
-  .agent-card .desc{color:var(--muted);font-size:12.5px;margin-top:2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .agent-card .desc{color:var(--muted);font-size:11px;margin-top:2px;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
   .agent-card .meta{color:var(--muted);font-size:11.5px;margin-top:6px}
   .badge{font-size:10.5px;border-radius:10px;padding:1px 8px;margin-left:auto}
   .badge.tasks{background:#fdf0d8;color:var(--orange)}
@@ -263,6 +263,39 @@
   .md-compact>:first-child{margin-top:0} .md-compact>:last-child{margin-bottom:0}
   /* tables de stats : défilement horizontal si trop étroit */
   #dash-tok-agent,#dash-tok-category,#dash-tok-provider,#dash-tok-project{overflow-x:auto}
+  /* ===== Profils ===== */
+  #profile-overlay{position:fixed;inset:0;z-index:100;background:rgba(20,30,50,.6);display:flex;align-items:center;justify-content:center}
+  #profile-overlay.hidden{display:none}
+  .profile-card{background:var(--panel);border-radius:14px;padding:28px;width:480px;max-width:94vw;box-shadow:0 20px 60px rgba(20,30,50,.3)}
+  .profile-card h2{margin:0 0 6px;font-size:20px}
+  .profile-card .psub{color:var(--muted);margin-bottom:18px;font-size:13px}
+  .profile-list{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
+  .profile-item{display:flex;align-items:center;gap:12px;background:var(--panel2);border:2px solid var(--border);border-radius:9px;padding:12px 14px;cursor:pointer;transition:.15s}
+  .profile-item:hover{border-color:var(--accent);background:var(--accent-soft)}
+  .pi-name{font-weight:650;font-size:15px}
+  .pi-sub{color:var(--muted);font-size:12.5px}
+  .pi-ico{font-size:22px}
+  .profile-chip{display:inline-flex;align-items:center;gap:6px;background:var(--accent-soft);border:1px solid #cfe0fb;border-radius:16px;padding:4px 11px;font-size:12px;cursor:pointer;margin-left:8px;flex:none;font-weight:500}
+  .profile-chip:hover{border-color:var(--accent)}
+  /* ===== Onglets supervision ===== */
+  .tab-bar{display:flex;border-bottom:1px solid var(--border);background:var(--panel);margin:12px 0 0;flex-shrink:0}
+  .tab-btn{background:none;border:0;border-bottom:2px solid transparent;color:var(--muted);padding:9px 18px;font-size:13px;cursor:pointer;margin-bottom:-1px;border-radius:0;font-weight:500;white-space:nowrap}
+  .tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
+  .tab-btn:hover:not(.active){color:var(--text);background:var(--panel2)}
+  .tab-pane{display:none;padding:16px 22px}.tab-pane.active{display:block}
+  /* ===== Dashboard ===== */
+  .bar-val{font-size:9.5px;color:var(--muted);margin-bottom:2px;text-align:center;line-height:1}
+  .period-filter{display:flex;gap:6px;align-items:center;padding:10px 14px 0;flex-wrap:wrap}
+  .period-btn{background:var(--panel);border:1px solid var(--border);color:var(--muted);padding:4px 12px;border-radius:14px;font-size:12px;cursor:pointer}
+  .period-btn.active{background:var(--accent-soft);color:var(--accent);border-color:#cfe0fb;font-weight:600}
+  .state-group{margin-bottom:16px}
+  .state-group-h{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:6px;font-weight:650;display:flex;align-items:center;gap:6px}
+  /* ===== Notifications ===== */
+  .notif .nreply{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:flex-start}
+  .notif .nreply textarea{flex:1;min-width:140px;min-height:62px;resize:vertical}
+  /* ===== État échec agent ===== */
+  .dot.failed{background:var(--red);box-shadow:0 0 0 3px #f9d8d8}
+  .state-pill.failed{color:var(--red);border-color:#f3c9c9;background:#fdeaea}
   /* ===== Responsive ===== */
   @media(max-width:900px){
     header{padding:8px 10px;gap:8px}
@@ -305,13 +338,27 @@
 </head>
 <body>
 
+<!-- ===== Overlay sélection de profil ===== -->
+<div id="profile-overlay" class="hidden">
+  <div class="profile-card">
+    <h2>🐝 L'Essaim</h2>
+    <div class="psub">Choisir un profil pour filtrer les agents affichés.</div>
+    <div class="profile-list" id="profile-list"></div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input id="new-profile-name" placeholder="Nom du nouveau profil…" style="flex:1;min-width:140px">
+      <button class="small" onclick="createAndSelectProfile()">+ Créer</button>
+    </div>
+  </div>
+</div>
+
 <header>
-  <h1>🐝 <span class="htxt">Essaim <span>· supervision</span></span></h1>
+  <h1>🐝 <span class="htxt">L'<span>Essaim</span></span></h1>
+  <button class="profile-chip" onclick="openProfileOverlay()" id="profile-chip" title="Changer de profil">👤 <span id="profile-chip-name">…</span></button>
   <nav>
     <button data-view="dash" class="active" onclick="showView('dash')">Tableau de bord</button>
     <button data-view="super" onclick="showView('super')">Supervision</button>
     <button data-view="missions" onclick="showView('missions')">Missions</button>
-    <button data-view="resources" onclick="showView('resources')">Ressources &amp; artefacts</button>
+    <button data-view="explorer" onclick="showView('explorer')">Explorateur</button>
     <button data-view="settings" onclick="showView('settings')">Réglages</button>
   </nav>
   <div class="bellwrap">
@@ -339,12 +386,25 @@
     <h2>Tableau de bord</h2>
     <div class="sub">Vue d'ensemble de l'essaim : indicateurs, état des agents et consommation de tokens.</div>
     <div class="kpis" id="dash-kpis"></div>
+    <details class="tile" id="dash-questions" style="margin-bottom:16px">
+      <summary><b>❓ Questions en attente</b> <span id="dash-q-count" style="color:var(--muted);font-size:12px;margin-left:6px"></span></summary>
+      <div class="tile-body" id="dash-q-list"></div>
+    </details>
     <div class="section-h">État des agents</div>
-    <div class="agent-strip" id="dash-agents"></div>
-    <div class="section-h">Consommation de tokens — synthèse</div>
+    <div id="dash-agents"></div>
+    <div class="section-h" style="margin-top:8px">Consommation de tokens — synthèse</div>
     <div class="kpis" id="dash-tok-summary"></div>
-    <div class="panel" style="margin-bottom:18px"><h3>Consommation par jour (30 derniers jours actifs)</h3>
-      <div id="dash-tok-day"></div></div>
+    <div class="panel" style="margin-bottom:18px">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 14px 0;flex-wrap:wrap;gap:8px">
+        <h3 style="margin:0;padding:0;border:0;text-transform:uppercase;font-size:11.5px;letter-spacing:.06em;color:var(--muted);font-weight:650">Consommation par jour</h3>
+        <div class="period-filter" style="padding:0">
+          <button class="period-btn active" onclick="setDashPeriod(null,this)">Tout</button>
+          <button class="period-btn" onclick="setDashPeriod('7d',this)">7 jours</button>
+          <button class="period-btn" onclick="setDashPeriod('24h',this)">24 h</button>
+        </div>
+      </div>
+      <div id="dash-tok-day"></div>
+    </div>
     <div class="dash-grid">
       <div class="panel"><h3>Tokens par agent</h3><div id="dash-tok-agent"></div></div>
       <div class="panel"><h3>Tokens par thème</h3><div id="dash-tok-category"></div></div>
@@ -396,35 +456,12 @@
   </div>
 </div>
 
-<!-- ============ RESSOURCES & ARTEFACTS ============ -->
-<div id="view-resources" class="view">
+<!-- ============ EXPLORATEUR ============ -->
+<div id="view-explorer" class="view">
   <div class="page">
-    <h2>Ressources &amp; artefacts</h2>
-    <div class="sub">Ressources mutualisées / liées à un agent / liées à une tâche, et artefacts produits par les agents — filtrables par agent et par mission.</div>
+    <h2>Explorateur de fichiers</h2>
+    <div class="sub">Artefacts produits par les agents et ressources mutualisées.</div>
     <div class="grid duo">
-      <div>
-        <div class="section-h">Ressources gérées</div>
-        <div class="toolbar">
-          <select id="r-scope" onchange="loadResources()">
-            <option value="">Tous les scopes</option>
-            <option value="shared">Mutualisées</option>
-            <option value="agent">Liées à un agent</option>
-            <option value="task">Liées à une tâche</option>
-          </select>
-          <select id="r-agent" onchange="loadResources()"><option value="">Tous les agents</option></select>
-          <select id="r-project" onchange="loadResources()"><option value="">Toutes les missions</option></select>
-          <button class="small" onclick="dlgResource.showModal()">+ Ajouter</button>
-        </div>
-        <div class="toolbar">
-          <input type="search" id="r-search" placeholder="Rechercher…" oninput="renderResources()">
-          <select id="r-sort" onchange="renderResources()">
-            <option value="date">Tri : récent</option>
-            <option value="name">Tri : nom</option>
-            <option value="size">Tri : taille</option>
-          </select>
-        </div>
-        <div class="card-list" id="resources-list"></div>
-      </div>
       <div>
         <div class="section-h">Artefacts (fichiers produits par les agents)</div>
         <div class="toolbar">
@@ -438,6 +475,33 @@
         </div>
         <div class="crumbs" id="a-crumbs"></div>
         <div class="card-list" id="artifacts-list"></div>
+      </div>
+      <div>
+        <details class="tile" open>
+          <summary><b>📁 Ressources gérées</b></summary>
+          <div class="tile-body">
+            <div class="toolbar">
+              <select id="r-scope" onchange="loadResources()">
+                <option value="">Tous les scopes</option>
+                <option value="shared">Mutualisées</option>
+                <option value="agent">Liées à un agent</option>
+                <option value="task">Liées à une tâche</option>
+              </select>
+              <select id="r-agent" onchange="loadResources()"><option value="">Tous les agents</option></select>
+              <select id="r-project" onchange="loadResources()"><option value="">Toutes les missions</option></select>
+              <button class="small" onclick="dlgResource.showModal()">+ Ajouter</button>
+            </div>
+            <div class="toolbar">
+              <input type="search" id="r-search" placeholder="Rechercher…" oninput="renderResources()">
+              <select id="r-sort" onchange="renderResources()">
+                <option value="date">Tri : récent</option>
+                <option value="name">Tri : nom</option>
+                <option value="size">Tri : taille</option>
+              </select>
+            </div>
+            <div class="card-list" id="resources-list"></div>
+          </div>
+        </details>
       </div>
     </div>
   </div>
@@ -474,6 +538,8 @@
   <select id="f-effort"><option>low</option><option>medium</option><option selected>high</option><option>max</option></select>
   <label>Itérations max par session</label><input id="f-iter" type="number" value="60" min="5" max="500">
   <label>Budget de tokens par session (0 = illimité)</label><input id="f-budget" type="number" value="0" min="0" step="10000">
+  <label>Profil</label>
+  <select id="f-profile"><option value="">— Aucun (agent système, visible partout) —</option></select>
   <div class="dialog-actions"><button class="secondary" onclick="dlgAgent.close()">Annuler</button><button id="dlgAgent-save" onclick="saveAgent()">Créer</button></div>
 </dialog>
 
@@ -572,13 +638,78 @@
 
 <script>
 const $ = s => document.querySelector(s);
-let agents = [], projects = [], providersList = [], resources = [], artifacts = [];
+let agents = [], projects = [], providersList = [], resources = [], artifacts = [], profilesList = [];
 let selectedAgent = null, selectedSession = null, lastEventId = 0;
 let curView = 'dash', editingAgentId = null, editingProviderId = null, overview = {};
 let hidePastSessions = false;
+let currentProfileId = null, currentProfileName = null;
+let dashPeriod = null;   // null = tout, '7d', '24h'
+let activeDetailTab = 0;
 // État d'ouverture des tuiles rétractables (préservé lors des rafraîchissements périodiques)
 const openTasks = new Set(), projState = new Map();
 function trackOpen(set, el, id){ if(el.open) set.add(id); else set.delete(id); }
+
+/* ===== Profils ===== */
+async function initProfiles(){
+  try {
+    profilesList = await api('/api/profiles');
+    const saved = sessionStorage.getItem('profileId');
+    const savedName = sessionStorage.getItem('profileName');
+    if (saved && profilesList.find(p=>p.id===+saved)){
+      currentProfileId = +saved; currentProfileName = savedName;
+      updateProfileChip();
+    } else {
+      openProfileOverlay();
+    }
+  } catch(e) { console.error(e); }
+}
+function openProfileOverlay(){
+  renderProfileList();
+  $('#profile-overlay').classList.remove('hidden');
+}
+function renderProfileList(){
+  $('#profile-list').innerHTML = profilesList.map(p=>`
+    <div class="profile-item" onclick="selectProfile(${p.id},${JSON.stringify(p.name)})">
+      <span class="pi-ico">👤</span>
+      <div><div class="pi-name">${esc(p.name)}</div>
+        <div class="pi-sub">${p.agents_count} agent(s)</div></div>
+    </div>`).join('') + `
+    <div class="profile-item" onclick="selectProfile(null,'Tous les agents')" style="${!currentProfileId?'border-color:var(--accent);background:var(--accent-soft)':''}">
+      <span class="pi-ico">🌐</span>
+      <div><div class="pi-name">Tous les agents</div>
+        <div class="pi-sub">Vue globale sans filtre de profil</div></div>
+    </div>`;
+}
+function selectProfile(id, name){
+  currentProfileId = id; currentProfileName = name;
+  sessionStorage.setItem('profileId', id ?? '');
+  sessionStorage.setItem('profileName', name ?? '');
+  $('#profile-overlay').classList.add('hidden');
+  updateProfileChip();
+  refresh();
+}
+function updateProfileChip(){
+  $('#profile-chip-name').textContent = currentProfileName || 'Tous les agents';
+}
+async function createAndSelectProfile(){
+  const name = $('#new-profile-name').value.trim();
+  if (!name) return;
+  try {
+    const r = await api('/api/profiles', {method:'POST', body:JSON.stringify({name})});
+    profilesList = await api('/api/profiles');
+    selectProfile(r.id, name);
+    $('#new-profile-name').value = '';
+  } catch(e) { alert(e.message); }
+}
+function profileQs(){ return currentProfileId ? `profile_id=${currentProfileId}` : ''; }
+function qs(params){ const p=Object.entries({...params}).filter(([,v])=>v!=null&&v!=='').map(([k,v])=>`${k}=${v}`).join('&'); return p?`?${p}`:''; }
+
+/* ===== Filtre période dashboard ===== */
+function setDashPeriod(p, btn){
+  dashPeriod = p;
+  document.querySelectorAll('.period-btn').forEach(b=>b.classList.toggle('active', b===btn));
+  loadDash();
+}
 
 const api = async (url, opts) => {
   const r = await fetch(url, opts ? {headers:{'Content-Type':'application/json'}, ...opts} : undefined);
@@ -655,14 +786,17 @@ function showView(v){
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active', b.dataset.view===v));
   if (v==='dash') loadDash();
   if (v==='missions') loadProjects();
-  if (v==='resources'){ populateSelects(); loadResources(); loadArtifacts(); }
+  if (v==='explorer'){ populateSelects(); loadResources(); loadArtifacts(); }
   if (v==='settings') loadProviders();
 }
 
 /* ---------- rafraîchissement global ---------- */
 async function refresh() {
   try {
-    const [ov, ags] = await Promise.all([api('/api/overview'), api('/api/agents')]);
+    const pqs = profileQs();
+    const [ov, ags] = await Promise.all([
+      api('/api/overview'+(pqs?`?${pqs}`:'')),
+      api('/api/agents'+(pqs?`?${pqs}`:''))]);
     overview = ov; agents = ags;
     const badge = $('#bell-badge');
     if (ov.notifications_open>0){ badge.style.display='block'; badge.textContent=ov.notifications_open; }
@@ -683,8 +817,17 @@ let dashLoading = false;
 async function loadDash(){
   if (dashLoading) return; dashLoading = true;
   try {
-    const ov = overview.agents!==undefined ? overview : await api('/api/overview');
-    const stats = await api('/api/stats/tokens');
+    const pqs = profileQs();
+    const periodQs = dashPeriod ? `period=${dashPeriod}` : '';
+    const ov = overview.agents!==undefined ? overview : await api('/api/overview'+(pqs?`?${pqs}`:''));
+    const [stats, openQs] = await Promise.all([
+      api('/api/stats/tokens'+(periodQs?`?${periodQs}`:'')),
+      api('/api/notifications?status=open&type=question'+(pqs?`&${pqs}`:''))]);
+
+    // KPIs
+    const sm = stats.summary || {};
+    const h24 = sm.last_24h || {};
+    const h24tok = (h24.input_tokens||0) + (h24.output_tokens||0);
     $('#dash-kpis').innerHTML = `
       <div class="kpi"><div class="kv">${agents.length||ov.agents}</div><div class="kl">agents</div></div>
       <div class="kpi ${ov.sessions_running?'ok':''}"><div class="kv">${ov.sessions_running}</div><div class="kl">sessions actives</div></div>
@@ -692,20 +835,55 @@ async function loadDash(){
       <div class="kpi ${ov.tasks_pending?'warn':''}"><div class="kv">${ov.tasks_pending}</div><div class="kl">tâches en attente</div></div>
       <div class="kpi click" onclick="showView('missions')"><div class="kv">${ov.projects_active||0}</div><div class="kl">missions actives</div></div>
       <div class="kpi click ${ov.notifications_open?'alert':''}" onclick="toggleNotifs(event)"><div class="kv">${ov.notifications_open}</div><div class="kl">notifications à traiter</div></div>
-      <div class="kpi"><div class="kv">${fmtTok(stats.total.input_tokens)} / ${fmtTok(stats.total.output_tokens)}</div><div class="kl">tokens in / out</div></div>`;
-    $('#dash-agents').innerHTML = agents.map(a=>`
-      <div class="astate" onclick="gotoAgent(${a.id})" title="${esc(STATE_LABEL[a.state]||a.state)}">
-        <span class="dot ${a.state}"></span><b>${esc(a.name)}</b>
-        <span class="state-pill ${a.state}">${STATE_LABEL[a.state]||a.state}</span>
-      </div>`).join('') || '<div class="empty">Aucun agent.</div>';
-    // Synthèse de consommation (totaux, moyennes, extrêmes)
-    const sm = stats.summary || {};
+      <div class="kpi"><div class="kv">${fmtTok(h24tok||0)}</div><div class="kl">tokens 24 h (in+out)</div></div>`;
+
+    // Questions en attente
+    const qEl = $('#dash-questions');
+    const qCount = openQs.length;
+    $('#dash-q-count').textContent = qCount ? `(${qCount})` : '(aucune)';
+    qEl.style.display = '';
+    if (qCount) { qEl.open = true; }
+    $('#dash-q-list').innerHTML = qCount ? openQs.map(n=>`
+      <div class="notif question" style="margin-bottom:10px">
+        <div class="nhead"><span class="ntype">❓ Question</span> · ${esc(n.agent_name)} · ${fmtTs(n.created_at)}</div>
+        <div class="ncontent">${md(n.content)}</div>
+        <div class="nreply">
+          <textarea id="dq-${n.id}" placeholder="Ta réponse… (Ctrl+Entrée pour envoyer)" onclick="event.stopPropagation()"
+            onkeydown="if(event.ctrlKey&&event.key==='Enter')answerNotif(${n.id},'dq-')"></textarea>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <button class="small" onclick="answerNotif(${n.id},'dq-')">Répondre</button>
+            <button class="small secondary" onclick="dismissNotif(${n.id})">Ignorer</button>
+          </div>
+        </div>
+      </div>`).join('') : '<div class="empty">Aucune question en attente.</div>';
+
+    // Agents groupés par état
+    const groups = [
+      {key:'running', label:'▶ En cours', agents: agents.filter(a=>a.state==='running')},
+      {key:'awaiting', label:'❓ En attente de réponse', agents: agents.filter(a=>a.state==='awaiting')},
+      {key:'scheduled', label:'⏱ Session planifiée', agents: agents.filter(a=>a.state==='scheduled')},
+      {key:'failed', label:'⚠ Dernier run en échec', agents: agents.filter(a=>a.last_session_failed)},
+      {key:'paused', label:'⏸ En pause', agents: agents.filter(a=>a.state==='paused')},
+      {key:'idle', label:'💤 Inactifs', agents: agents.filter(a=>a.state==='idle'&&!a.last_session_failed)},
+    ].filter(g=>g.agents.length);
+    $('#dash-agents').innerHTML = groups.map(g=>`
+      <div class="state-group">
+        <div class="state-group-h"><span class="dot ${g.key==='failed'?'failed':g.key}"></span>${esc(g.label)} <span style="font-weight:400">(${g.agents.length})</span></div>
+        <div class="agent-strip">${g.agents.map(a=>`
+          <div class="astate" onclick="gotoAgent(${a.id})" title="${esc(STATE_LABEL[a.state]||a.state)}">
+            <span class="dot ${a.last_session_failed?'failed':a.state}"></span><b>${esc(a.name)}</b>
+            <span class="state-pill ${a.last_session_failed?'failed':a.state}">${a.last_session_failed?'⚠ échec':(STATE_LABEL[a.state]||a.state)}</span>
+          </div>`).join('')}</div>
+      </div>`).join('') || '<div class="empty" style="margin-bottom:16px">Aucun agent.</div>';
+
+    // Synthèse de consommation
     $('#dash-tok-summary').innerHTML = `
-      <div class="kpi"><div class="kv">${fmtTok(sm.total||0)}</div><div class="kl">tokens au total (in+out)</div></div>
-      <div class="kpi"><div class="kv">${sm.sessions||0}</div><div class="kl">sessions facturées${sm.completed_sessions?` · ${sm.completed_sessions} terminées`:''}</div></div>
+      <div class="kpi"><div class="kv">${fmtTok(sm.total||0)}</div><div class="kl">tokens${dashPeriod?' ('+dashPeriod+')':' au total'} (in+out)</div></div>
+      <div class="kpi"><div class="kv">${sm.sessions||0}</div><div class="kl">sessions facturées</div></div>
       <div class="kpi"><div class="kv">${fmtTok(sm.avg_session||0)}</div><div class="kl">moyenne / session</div></div>
       <div class="kpi"><div class="kv">${fmtTok(sm.max_session||0)}</div><div class="kl">session la plus lourde</div></div>`;
-    // Graphe par jour
+
+    // Graphe par jour avec valeurs visibles
     const days = stats.by_day || [];
     if (days.length){
       const maxd = Math.max(...days.map(d=>d.input_tokens+d.output_tokens), 1);
@@ -713,10 +891,12 @@ async function loadDash(){
         const tot = d.input_tokens + d.output_tokens;
         const h = Math.round(100*tot/maxd);
         return `<div class="bar" title="${d.day} · ${fmtTok(tot)} tok · ${d.sessions} session(s)">
+          <div class="bar-val">${fmtTok(tot)}</div>
           <div class="bar-fill" style="height:${Math.max(h,2)}%"></div>
           <div class="bar-lbl">${d.day.slice(5)}</div></div>`;
       }).join('') + `</div>`;
     } else $('#dash-tok-day').innerHTML = '<div class="empty">Aucune session datée.</div>';
+
     const tokTable = (rows, label, cols) => rows.length ? `
       <table class="stats-t"><tr><th>${label}</th><th class="num">in</th><th class="num">out</th>${cols?'<th class="num">sessions</th>':''}</tr>
       ${rows.map(r=>`<tr><td>${esc(r._label)}</td><td class="num">${fmtTok(r.input_tokens)}</td>
@@ -738,12 +918,15 @@ const catState = new Map();   // état déplié/replié des blocs thème
 function trackCat(el, name){ catState.set(name, el.open); }
 
 function agentCardHtml(a){
+  const dotCls = a.last_session_failed ? 'failed' : a.state;
   return `<div class="agent-card ${selectedAgent?.id===a.id?'selected':''}" onclick="selectAgent(${a.id})">
-    <div class="row1"><span class="dot ${a.state}"></span><span class="name">${esc(a.name)}</span>
+    <div class="row1"><span class="dot ${dotCls}"></span><span class="name">${esc(a.name)}</span>
       ${a.awaiting ? `<span class="badge" style="background:#efe7fb;color:var(--purple)">❓ ${a.awaiting}</span>`
-        : a.pending_tasks ? `<span class="badge tasks">${a.pending_tasks} tâche(s)</span>` : ''}</div>
+        : a.pending_tasks ? `<span class="badge tasks">${a.pending_tasks} tâche(s)</span>`
+        : a.last_session_failed ? `<span class="badge" style="background:#fdeaea;color:var(--red)">⚠ échec</span>` : ''}</div>
     <div class="desc">${esc(a.description)}</div>
-    <div class="meta">${a.state==='awaiting' ? STATE_LABEL.awaiting
+    <div class="meta">${a.last_session_failed ? '⚠ dernier run en échec'
+      : a.state==='awaiting' ? STATE_LABEL.awaiting
       : a.current_session ? '▶ session n°'+a.current_session.number+' en cours'
       : a.next_session ? '⏱ prochaine : '+fmtTs(a.next_session.scheduled_at)
       : STATE_LABEL[a.state]||a.state}</div>
@@ -786,37 +969,115 @@ function renderAgentList() {
 async function selectAgent(id) {
   selectedAgent = agents.find(a => a.id === id);
   if (!selectedAgent) return;
-  selectedSession = null; lastEventId = 0;
+  selectedSession = null; lastEventId = 0; activeDetailTab = 0;
   $('#detail').innerHTML = `
-    <div class="detail-head" id="d-head"></div>
-    <div class="mission" id="d-mission"></div>
-    <div class="actions">
-      <button class="small" onclick="dlgTask.showModal()">+ Tâche</button>
-      <button class="small" onclick="dlgSession.showModal()">+ Session</button>
-      <button class="small secondary" onclick="openAgentDlg(selectedAgent)">✎ Modifier</button>
-      <button class="small secondary" id="d-pause"></button>
-      <button class="small danger" onclick="deleteAgent()">🗑 Supprimer</button>
+    <div style="padding:16px 22px 0">
+      <div class="detail-head" id="d-head"></div>
+      <div class="mission" id="d-mission"></div>
+      <div class="actions">
+        <button class="small" onclick="dlgTask.showModal()">+ Tâche</button>
+        <button class="small" onclick="dlgSession.showModal()">+ Session</button>
+        <button class="small secondary" onclick="openAgentDlg(selectedAgent)">✎ Modifier</button>
+        <button class="small secondary" id="d-pause"></button>
+        <button class="small danger" onclick="deleteAgent()">🗑 Supprimer</button>
+      </div>
     </div>
-    <div class="cols">
-      <div>
-        <details class="panel" open><summary>Sessions
-          <label class="hd-toggle" onclick="event.stopPropagation()"><input type="checkbox" id="s-hidepast" ${hidePastSessions?'checked':''} onchange="toggleHidePast()">masquer les passées</label>
-          </summary><div id="d-sessions"></div></details>
-        <details class="panel" open style="margin-top:14px"><summary>Tâches</summary><div id="d-tasks"></div></details>
-        <details class="panel" style="margin-top:14px"><summary>Services</summary><div id="d-services"></div></details>
+    <div class="tab-bar">
+      <button class="tab-btn active" onclick="switchDetailTab(0)">Description</button>
+      <button class="tab-btn" onclick="switchDetailTab(1)">Sessions &amp; tâches</button>
+      <button class="tab-btn" onclick="switchDetailTab(2)">Artefacts</button>
+    </div>
+    <div class="tab-pane active" id="tab-desc">
+      <div id="d-agent-notifs"></div>
+    </div>
+    <div class="tab-pane" id="tab-sessions">
+      <div class="cols">
+        <div>
+          <details class="panel" open><summary>Sessions
+            <label class="hd-toggle" onclick="event.stopPropagation()"><input type="checkbox" id="s-hidepast" ${hidePastSessions?'checked':''} onchange="toggleHidePast()">masquer les passées</label>
+            </summary><div id="d-sessions"></div></details>
+          <details class="panel" open style="margin-top:14px"><summary>Tâches</summary><div id="d-tasks"></div></details>
+          <details class="panel" style="margin-top:14px"><summary>Services</summary><div id="d-services"></div></details>
+        </div>
+        <div class="panel">
+          <h3 id="ev-title">Flux de la session</h3>
+          <div id="events"><div class="ev" style="color:var(--muted)">Sélectionne une session.</div></div>
+          <div class="report" id="d-report" style="display:none"></div>
+        </div>
       </div>
-      <div class="panel">
-        <h3 id="ev-title">Flux de la session</h3>
-        <div id="events"><div class="ev" style="color:var(--muted)">Sélectionne une session.</div></div>
-        <div class="report" id="d-report" style="display:none"></div>
+    </div>
+    <div class="tab-pane" id="tab-artifacts">
+      <div class="toolbar">
+        <input type="search" id="da-search" placeholder="Rechercher dans les fichiers…" oninput="renderDetailArtifacts()">
+        <select id="da-sort" onchange="renderDetailArtifacts()">
+          <option value="date">Tri : récent</option>
+          <option value="name">Tri : nom</option>
+          <option value="size">Tri : taille</option>
+        </select>
       </div>
+      <div class="crumbs" id="da-crumbs"></div>
+      <div class="card-list" id="da-list"></div>
     </div>`;
   renderDetailHead(); await refreshLists(); renderAgentList();
 }
 
+let detailArtifacts = [], detailArtPath = '';
+async function loadDetailArtifacts(){
+  if (!selectedAgent) return;
+  detailArtPath = '';
+  try { detailArtifacts = await api(`/api/agents/${selectedAgent.id}/artifacts`); }
+  catch(e){ detailArtifacts = []; }
+  renderDetailArtifacts();
+}
+function setDetailArtPath(p){ detailArtPath = p; renderDetailArtifacts(); }
+function renderDetailArtifacts(){
+  const q=(($('#da-search')?.value)||'').toLowerCase();
+  const sort=($('#da-sort')?.value)||'date';
+  const box=$('#da-list'), bc=$('#da-crumbs');
+  if(!box) return;
+  const id = selectedAgent?.id;
+  if(!id){ box.innerHTML='<div class="empty">Aucun agent.</div>'; return; }
+  const sortF = list => list.sort((a,b)=> sort==='name'?a.path.localeCompare(b.path):sort==='size'?b.size-a.size:b.mtime-a.mtime);
+  if(q){
+    bc.innerHTML='Résultats — <a onclick="$(\'#da-search\').value=\'\';renderDetailArtifacts()">effacer</a>';
+    const list = sortF(detailArtifacts.filter(f=>f.path.toLowerCase().includes(q)));
+    box.innerHTML = list.map(f=>artFileRow(id,f,true)).join('')||'<div class="empty">Aucun résultat.</div>';
+    return;
+  }
+  const segs = detailArtPath ? detailArtPath.split('/') : [];
+  let crumbs=`<a onclick='setDetailArtPath("")'>🏠 racine</a>`;
+  segs.forEach((s,i)=>{ crumbs+=' / '+`<a onclick='setDetailArtPath(${JSON.stringify(segs.slice(0,i+1).join('/'))})'>${esc(s)}</a>`; });
+  bc.innerHTML=crumbs;
+  const prefix = detailArtPath ? detailArtPath+'/' : '';
+  const folders=new Map(), files=[];
+  for(const f of detailArtifacts){
+    if(!f.path.startsWith(prefix)) continue;
+    const rest=f.path.slice(prefix.length);
+    const cut=rest.indexOf('/');
+    if(cut===-1) files.push(f);
+    else{ const seg=rest.slice(0,cut); const e=folders.get(seg)||{n:0,size:0}; e.n++; e.size+=f.size; folders.set(seg,e); }
+  }
+  let html=[...folders.keys()].sort().map(seg=>{ const e=folders.get(seg); return `
+    <div class="res-row" onclick='setDetailArtPath(${JSON.stringify(prefix+seg)})'>
+      <span class="ico">📁</span>
+      <div class="grow"><div class="rname">${esc(seg)}/</div>
+        <div class="rsub">${e.n} fichier(s) · ${fmtSize(e.size)}</div></div>
+      <span class="chip">dossier</span></div>`;}).join('');
+  html += sortF(files).map(f=>{
+    const name=f.path.slice(prefix.length);
+    return `<div class="res-row" onclick='previewArtifact(${id},${JSON.stringify(f.path)})'>
+      <span class="ico">${isImg(f.path)?'🖼':isMd(f.path)?'📝':'📄'}</span>
+      <div class="grow"><div class="rname">${esc(name)}</div>
+        <div class="rsub">${fmtSize(f.size)} · ${fmtTs(new Date(f.mtime*1000).toISOString())}</div></div>
+    </div>`;}).join('');
+  box.innerHTML=html||'<div class="empty">Dossier vide.</div>';
+}
+
 function renderDetailHead() {
   const a = selectedAgent;
-  $('#d-head').innerHTML = `<h2>${esc(a.name)}</h2><span class="state-pill ${a.state}">${STATE_LABEL[a.state]||a.state}</span>
+  const stCls = a.last_session_failed ? 'failed' : a.state;
+  const stLbl = a.last_session_failed ? '⚠ dernier run en échec' : (STATE_LABEL[a.state]||a.state);
+  $('#d-head').innerHTML = `<h2>${esc(a.name)}</h2><span class="state-pill ${stCls}">${stLbl}</span>
     ${a.category?`<span class="chip">🏷 ${esc(a.category)}</span>`:''}
     <span style="color:var(--muted);font-size:12px">${esc(a.model)} · effort ${esc(a.effort)}`
     + (a.provider_name ? ` · provider ${esc(a.provider_name)}${a.provider_id?'':' (défaut)'}` : '')
@@ -830,26 +1091,57 @@ function renderDetailHead() {
 
 async function refreshLists() {
   if (!selectedAgent) return;
-  const [allSessions, tasks, services] = await Promise.all([
-    api(`/api/agents/${selectedAgent.id}/sessions`), api(`/api/agents/${selectedAgent.id}/tasks`),
-    api(`/api/agents/${selectedAgent.id}/services`)]);
+  const a = selectedAgent;
+  const [allSessions, tasks, services, agentNotifs] = await Promise.all([
+    api(`/api/agents/${a.id}/sessions`), api(`/api/agents/${a.id}/tasks`),
+    api(`/api/agents/${a.id}/services`),
+    api(`/api/notifications?agent_id=${a.id}&status=open`)]);
+
+  // ---- Onglet 1 : notifications de l'agent ----
+  const nEl = $('#d-agent-notifs');
+  if (nEl) {
+    nEl.innerHTML = agentNotifs.length ? agentNotifs.map(n=>`
+      <div class="notif ${n.type} ${n.status}" style="margin-bottom:10px">
+        <div class="nhead"><span class="ntype">${n.type==='question'?'❓ Question':'🔔 Alerte'}</span>
+          · ${fmtTs(n.created_at)} · <span class="st ${n.status==='open'?'pending':'done'}">${n.status}</span></div>
+        <div class="ncontent">${md(n.content)}</div>
+        ${n.response?`<div class="nanswer">↩ ${esc(n.response)}`:''}
+        ${n.status==='open'&&n.type==='question'?`
+          <div class="nreply">
+            <textarea id="an-${n.id}" placeholder="Ta réponse… (Ctrl+Entrée pour envoyer)"
+              onkeydown="if(event.ctrlKey&&event.key==='Enter')answerNotif(${n.id},'an-')"></textarea>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <button class="small" onclick="answerNotif(${n.id},'an-')">Répondre</button>
+              <button class="small secondary" onclick="dismissNotif(${n.id})">Ignorer</button>
+            </div>
+          </div>`:''}
+        ${n.status==='open'&&n.type==='alert'?`
+          <div class="nreply"><button class="small secondary" onclick="dismissNotif(${n.id})">Marquer comme lu</button></div>`:''}
+      </div>`).join('') : '<div class="empty" style="padding:14px 0">Aucune notification ouverte pour cet agent.</div>';
+  }
+
+  // ---- Onglet 2 : sessions, tâches, services ----
   const PAST = new Set(['completed','failed','interrupted']);
-  const sessions = hidePastSessions ? allSessions.filter(s=>!PAST.has(s.status) || s.id===selectedSession?.id) : allSessions;
+  const sessions = hidePastSessions ? allSessions.filter(s=>!PAST.has(s.status)||s.id===selectedSession?.id) : allSessions;
   const hiddenCount = allSessions.length - sessions.length;
-  $('#d-sessions').innerHTML = sessions.map(s => `
+  const dSessions = $('#d-sessions');
+  if (dSessions) dSessions.innerHTML = sessions.map(s => `
     <div class="session-item ${selectedSession?.id===s.id?'selected':''}" onclick="selectSession(${s.id}, '${s.status}')">
       <div><span class="st ${s.status}">n°${s.number} · ${s.status}</span>
-        ${s.status==='running' ? `<button class="small danger" style="float:right" onclick="event.stopPropagation();act('/api/sessions/${s.id}/interrupt')">Stop</button>`:''}
-        ${s.status==='planned' ? `<span style="float:right;display:inline-flex;gap:6px">
+        ${s.status==='running'?`<button class="small danger" style="float:right" onclick="event.stopPropagation();act('/api/sessions/${s.id}/interrupt')">Stop</button>`:''}
+        ${s.status==='planned'?`<span style="float:right;display:inline-flex;gap:6px">
           <button class="small" onclick="event.stopPropagation();openRunNow(${s.id})">▶ Lancer</button>
-          <button class="small danger" onclick="event.stopPropagation();cancelSession(${s.id})">✕ Annuler</button></span>`:''}</div>
+          <button class="small danger" onclick="event.stopPropagation();cancelSession(${s.id})">✕ Annuler</button></span>`:''}
+        ${(s.status==='failed'||s.status==='interrupted')?`<button class="small secondary" style="float:right" onclick="event.stopPropagation();retrySession(${s.id})">↺ Relancer</button>`:''}</div>
       <div class="obj">${esc(s.objective)}</div>
-      <div class="sub">${s.status==='planned' ? '⏱ '+fmtTs(s.scheduled_at) : fmtTs(s.started_at)}
-        ${s.input_tokens ? ' · '+fmtTok(s.input_tokens)+'/'+fmtTok(s.output_tokens)+' tok' : ''}${s.provider?' · '+esc(s.provider):''}${s.user_note?' · 📝 note':''}</div>
+      <div class="sub">${s.status==='planned'?'⏱ '+fmtTs(s.scheduled_at):fmtTs(s.started_at)}
+        ${s.input_tokens?' · '+fmtTok(s.input_tokens)+'/'+fmtTok(s.output_tokens)+' tok':''}${s.provider?' · '+esc(s.provider):''}${s.user_note?' · 📝 note':''}</div>
     </div>`).join('')
-    + (hiddenCount ? `<div class="session-item" style="cursor:default;color:var(--muted);text-align:center">${hiddenCount} session(s) passée(s) masquée(s)</div>` : '')
+    + (hiddenCount?`<div class="session-item" style="cursor:default;color:var(--muted);text-align:center">${hiddenCount} session(s) passée(s) masquée(s)</div>`:'')
     || '<div class="session-item" style="cursor:default;color:var(--muted)">Aucune session.</div>';
-  $('#d-tasks').innerHTML = tasks.map(t => `
+
+  const dTasks = $('#d-tasks');
+  if (dTasks) dTasks.innerHTML = tasks.map(t => `
     <details class="titem" ${openTasks.has(t.id)?'open':''} ontoggle="trackOpen(openTasks,this,${t.id})">
       <summary><span class="st ${t.status}">#${t.id} · ${t.status}</span>
         <span class="tsum">${esc(t.title||t.description)}</span>
@@ -858,12 +1150,18 @@ async function refreshLists() {
         <div class="sub" style="margin-top:6px">de ${esc(t.origin)}${t.project_id?` · mission #${t.project_id}`:''} · créée ${fmtTs(t.created_at)}${t.completed_at?` · close ${fmtTs(t.completed_at)}`:''}</div>
         ${t.result?`<div class="sub" style="margin-top:4px">↳ résultat :</div>${md(t.result)}`:''}</div>
     </details>`).join('') || '<div class="task-item" style="cursor:default;color:var(--muted)">Aucune tâche.</div>';
-  $('#d-services').innerHTML = services.map(s => `
+
+  const dSvc = $('#d-services');
+  if (dSvc) dSvc.innerHTML = services.map(s => `
     <div class="task-item" style="cursor:default">
       <div><span class="st ${s.status==='running'?'done':'failed'}">${esc(s.name)}</span>
         ${s.port?`<span class="sub"> · port ${s.port}</span>`:''}<span class="sub"> · ${s.status}</span></div>
       ${s.command?`<div style="font-family:Consolas,monospace;font-size:11.5px;color:var(--muted)">${esc(s.command)}</div>`:''}
     </div>`).join('') || '<div class="task-item" style="cursor:default;color:var(--muted)">Aucun service déclaré.</div>';
+
+  // ---- Onglet 3 : artefacts ----
+  if (activeDetailTab === 2) await loadDetailArtifacts();
+
   if (selectedSession) await pollEvents();
 }
 
@@ -935,6 +1233,13 @@ async function cancelSession(id){
   try{ await api(`/api/sessions/${id}/interrupt`, {method:'POST', body:'{}'}); await refresh(); }
   catch(e){ alert(e.message); }
 }
+async function retrySession(id){
+  try{
+    const r = await api(`/api/sessions/${id}/retry`, {method:'POST', body:'{}' });
+    if (r.warnings && r.warnings.length) alert('Session replanifiée avec avertissements :\n'+r.warnings.join('\n'));
+    await refresh();
+  }catch(e){ alert(e.message); }
+}
 
 async function deleteAgent(){
   const a = selectedAgent; if (!a) return;
@@ -976,6 +1281,10 @@ async function openAgentDlg(agent){
   $('#f-effort').value = agent?.effort || 'high';
   $('#f-iter').value = agent?.max_iterations || 60;
   $('#f-budget').value = agent?.session_token_budget || 0;
+  // Profil
+  $('#f-profile').innerHTML = '<option value="">— Aucun (agent système, visible partout) —</option>'
+    + profilesList.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  $('#f-profile').value = agent?.profile_id || (currentProfileId || '');
   dlgAgent.showModal();
 }
 const modelCache = {};   // provider_id -> liste de modèles récupérée dynamiquement (par session)
@@ -1041,13 +1350,15 @@ function getModelValue(){
 }
 async function saveAgent() {
   const provider_id = $('#f-provider').value ? +$('#f-provider').value : null;
+  const profile_id = $('#f-profile').value ? +$('#f-profile').value : null;
   const model = getModelValue();
   if (!model){ alert('Choisis ou saisis un modèle.'); return; }
   const body = {
     description:$('#f-desc').value.trim(), mission_prompt:$('#f-mission').value.trim(),
     category:$('#f-category').value.trim(),
     model, effort:$('#f-effort').value,
-    max_iterations:+$('#f-iter').value||60, session_token_budget:+$('#f-budget').value||0};
+    max_iterations:+$('#f-iter').value||60, session_token_budget:+$('#f-budget').value||0,
+    profile_id};
   try {
     if (editingAgentId){
       if (provider_id) body.provider_id = provider_id; else body.clear_provider = true;
@@ -1070,13 +1381,13 @@ async function createSession() {
     $('#f-objective').value=''; dlgSession.close(); await refresh(); } catch(e){ alert(e.message); }
 }
 
-/* ---------- ressources ---------- */
+/* ---------- ressources / explorateur ---------- */
 async function populateSelects(){
   const opts = agents.map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('');
-  const keep = (sel, html, first) => { const v=sel.value; sel.innerHTML=first+html; sel.value=v; };
+  const keep = (sel, html, first) => { if(!sel) return; const v=sel.value; sel.innerHTML=first+html; sel.value=v; };
   keep($('#a-agent'), opts, '<option value="">— Choisir un agent —</option>');
   keep($('#r-agent'), opts, '<option value="">Tous les agents</option>');
-  $('#rf-agent').innerHTML = opts;
+  if ($('#rf-agent')) $('#rf-agent').innerHTML = opts;
   try {
     const projs = await api('/api/projects?include_archived=true');
     keep($('#r-project'), projs.map(p=>`<option value="${p.id}">#${p.id} ${esc(p.title)}</option>`).join(''),
@@ -1269,15 +1580,22 @@ async function loadNotifs(){
       <div class="ncontent">${md(n.content)}</div>
       ${n.response?`<div class="nanswer">↩ ${esc(n.response)}</div>`:''}
       ${n.status==='open' && n.type==='question' ? `
-        <div class="nreply"><input id="ans-${n.id}" placeholder="Ta réponse…" onclick="event.stopPropagation()">
-          <button class="small" onclick="answerNotif(${n.id})">Répondre</button>
-          <button class="small secondary" onclick="dismissNotif(${n.id})">Ignorer</button></div>`:''}
+        <div class="nreply">
+          <textarea id="np-${n.id}" placeholder="Ta réponse… (Ctrl+Entrée pour envoyer)" onclick="event.stopPropagation()"
+            onkeydown="if(event.ctrlKey&&event.key==='Enter')answerNotif(${n.id},'np-')"></textarea>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <button class="small" onclick="answerNotif(${n.id},'np-')">Répondre</button>
+            <button class="small secondary" onclick="dismissNotif(${n.id})">Ignorer</button>
+          </div>
+        </div>`:''}
       ${n.status==='open' && n.type==='alert' ? `
         <div class="nreply"><button class="small secondary" onclick="dismissNotif(${n.id})">Marquer comme lu</button></div>`:''}
     </div>`).join('') || '<div class="empty">Aucune notification.</div>';
 }
-async function answerNotif(id){
-  const v=$('#ans-'+id).value.trim(); if(!v)return;
+async function answerNotif(id, prefix='np-'){
+  const el = $('#'+(prefix||'np-')+id);
+  const v = el ? el.value.trim() : '';
+  if(!v) return;
   try{ await api(`/api/notifications/${id}/answer`,{method:'POST',body:JSON.stringify({response:v})}); loadNotifs(); refresh(); }catch(e){alert(e.message);}
 }
 async function dismissNotif(id){ try{ await api(`/api/notifications/${id}/dismiss`,{method:'POST',body:'{}'}); loadNotifs(); refresh(); }catch(e){alert(e.message);} }
@@ -1504,8 +1822,14 @@ async function delProvider(id){
   try{ await api(`/api/providers/${id}`,{method:'DELETE'}); loadProviders(); }catch(e){alert(e.message);}
 }
 
-refresh();
-setInterval(refresh, 3000);
+function switchDetailTab(idx){
+  activeDetailTab = idx;
+  document.querySelectorAll('#detail .tab-btn').forEach((b,i)=>b.classList.toggle('active',i===idx));
+  document.querySelectorAll('#detail .tab-pane').forEach((p,i)=>p.classList.toggle('active',i===idx));
+  if (idx === 2) loadDetailArtifacts();
+}
+
+initProfiles().then(()=>{ refresh(); setInterval(refresh, 3000); });
 </script>
 </body>
 </html>

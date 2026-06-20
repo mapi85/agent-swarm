@@ -46,6 +46,7 @@ class AgentCreate(BaseModel):
     session_token_budget: int = config.DEFAULT_SESSION_TOKEN_BUDGET
     provider_id: int | None = None
     category: str = ""
+    profile_id: int | None = None
 
 
 class AgentUpdate(BaseModel):
@@ -58,6 +59,12 @@ class AgentUpdate(BaseModel):
     provider_id: int | None = None
     clear_provider: bool = False    # true = revenir au provider par défaut
     category: str | None = None
+    profile_id: int | None = None
+    clear_profile: bool = False     # true = agent système (visible tous profils)
+
+
+class ProfileCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
 
 
 class TaskCreate(BaseModel):
@@ -132,15 +139,33 @@ class FetchModels(BaseModel):
 # ---------------------------------------------------------------------------
 
 @app.get("/api/overview")
-def overview():
+def overview(profile_id: int | None = None):
+    profile_filter = "AND (a.profile_id = ? OR a.profile_id IS NULL)" if profile_id else ""
+    p = (profile_id,) if profile_id else ()
+    agents_count = db.query_one(
+        f"SELECT COUNT(*) AS c FROM agents a WHERE 1=1 {profile_filter}", p)["c"]
+    running_agents = db.query_one(
+        f"SELECT COUNT(*) AS c FROM agents a WHERE a.status='running' {profile_filter}", p)["c"]
+    sessions_running = db.query_one(
+        f"SELECT COUNT(*) AS c FROM sessions s JOIN agents a ON a.id=s.agent_id "
+        f"WHERE s.status='running' {profile_filter}", p)["c"]
+    sessions_planned = db.query_one(
+        f"SELECT COUNT(*) AS c FROM sessions s JOIN agents a ON a.id=s.agent_id "
+        f"WHERE s.status='planned' {profile_filter}", p)["c"]
+    tasks_pending = db.query_one(
+        f"SELECT COUNT(*) AS c FROM tasks t JOIN agents a ON a.id=t.agent_id "
+        f"WHERE t.status='pending' {profile_filter}", p)["c"]
+    notifs_open = db.query_one(
+        f"SELECT COUNT(*) AS c FROM notifications n JOIN agents a ON a.id=n.agent_id "
+        f"WHERE n.status='open' {profile_filter}", p)["c"]
     return {
-        "agents": db.query_one("SELECT COUNT(*) AS c FROM agents")["c"],
-        "agents_running": db.query_one("SELECT COUNT(*) AS c FROM agents WHERE status='running'")["c"],
-        "sessions_running": db.running_sessions_count(),
-        "sessions_planned": db.query_one("SELECT COUNT(*) AS c FROM sessions WHERE status='planned'")["c"],
-        "tasks_pending": db.query_one("SELECT COUNT(*) AS c FROM tasks WHERE status='pending'")["c"],
+        "agents": agents_count,
+        "agents_running": running_agents,
+        "sessions_running": sessions_running,
+        "sessions_planned": sessions_planned,
+        "tasks_pending": tasks_pending,
         "projects_active": db.query_one("SELECT COUNT(*) AS c FROM projects WHERE status IN ('proposed','running')")["c"],
-        "notifications_open": db.open_notifications_count(),
+        "notifications_open": notifs_open,
         "tokens_in": db.query_one("SELECT COALESCE(SUM(input_tokens),0) AS c FROM sessions")["c"],
         "tokens_out": db.query_one("SELECT COALESCE(SUM(output_tokens),0) AS c FROM sessions")["c"],
     }
@@ -151,8 +176,8 @@ def overview():
 # ---------------------------------------------------------------------------
 
 @app.get("/api/agents")
-def agents_list():
-    agents = db.list_agents()
+def agents_list(profile_id: int | None = None):
+    agents = db.list_agents(profile_id)
     providers_by_id = {p["id"]: p for p in db.list_providers()}
     tokens = {t["id"]: t for t in db.tokens_by_agent()}
     default = db.default_provider()
@@ -176,6 +201,11 @@ def agents_list():
                       else "awaiting" if a["awaiting"]
                       else "scheduled" if a["next_session"]
                       else "idle")
+        # Dernière session échouée (pour regroupement dashboard)
+        last_s = db.query_one(
+            "SELECT status FROM sessions WHERE agent_id=? ORDER BY id DESC LIMIT 1", (a["id"],))
+        a["last_session_failed"] = bool(last_s and last_s["status"] == "failed"
+                                        and a["state"] == "idle")
     return agents
 
 
@@ -185,10 +215,12 @@ def agents_create(body: AgentCreate):
         raise HTTPException(409, f"Un agent nommé '{body.name}' existe déjà.")
     if body.provider_id is not None and not db.get_provider(body.provider_id):
         raise HTTPException(400, "Provider inconnu.")
+    if body.profile_id is not None and not db.get_profile(body.profile_id):
+        raise HTTPException(400, "Profil inconnu.")
     agent_id = db.create_agent(body.name, body.description, body.mission_prompt,
                                body.model, body.effort, body.max_iterations,
                                body.session_token_budget, body.provider_id,
-                               body.category.strip())
+                               body.category.strip(), body.profile_id)
     runtime.agent_workdir(db.get_agent(agent_id))
     return db.get_agent(agent_id)
 
@@ -208,11 +240,13 @@ def agents_update(agent_id: int, body: AgentUpdate):
     if body.provider_id is not None and not db.get_provider(body.provider_id):
         raise HTTPException(400, "Provider inconnu.")
     fields = {k: v for k, v in body.model_dump().items()
-              if v is not None and k != "clear_provider"}
+              if v is not None and k not in ("clear_provider", "clear_profile")}
     if "category" in fields:
         fields["category"] = fields["category"].strip()
     if body.clear_provider:
         fields["provider_id"] = None
+    if body.clear_profile:
+        fields["profile_id"] = None
     if fields:
         cols = ", ".join(f"{k} = ?" for k in fields)
         db.execute(f"UPDATE agents SET {cols} WHERE id = ?", (*fields.values(), agent_id))
@@ -349,6 +383,27 @@ def sessions_run_now(session_id: int, body: RunNowBody):
     return {"advanced": True, "session": db.get_session(session_id), "warnings": warnings}
 
 
+@app.post("/api/sessions/{session_id}/retry")
+def sessions_retry(session_id: int, body: RunNowBody):
+    """Crée une nouvelle session planifiée avec le même objectif qu'une session échouée/interrompue."""
+    session = db.get_session(session_id)
+    if not session:
+        raise HTTPException(404, "Session inconnue.")
+    if session["status"] not in ("failed", "interrupted"):
+        raise HTTPException(409, "Seule une session échouée ou interrompue peut être relancée.")
+    new_id = db.create_session(session["agent_id"], session["objective"], db.now())
+    note = body.comment.strip()
+    if note:
+        db.update_session(new_id, user_note=note)
+    agent = db.get_agent(session["agent_id"])
+    warnings = []
+    if agent["status"] == "paused":
+        warnings.append("L'agent est en pause — clique « Reprendre » pour que la session démarre.")
+    if db.open_questions(agent["id"]):
+        warnings.append("L'agent attend une réponse à une question (cloche 🔔).")
+    return {"created_session_id": new_id, "warnings": warnings}
+
+
 @app.post("/api/sessions/{session_id}/interrupt")
 def sessions_interrupt(session_id: int):
     session = db.get_session(session_id)
@@ -373,9 +428,34 @@ def session_events(session_id: int, after: int = 0):
 # Notifications / sollicitations
 # ---------------------------------------------------------------------------
 
+@app.get("/api/profiles")
+def profiles_list():
+    return db.list_profiles()
+
+
+@app.post("/api/profiles", status_code=201)
+def profiles_create(body: ProfileCreate):
+    if db.query_one("SELECT id FROM profiles WHERE name = ?", (body.name,)):
+        raise HTTPException(409, f"Un profil nommé '{body.name}' existe déjà.")
+    pid = db.create_profile(body.name)
+    return db.get_profile(pid)
+
+
+@app.delete("/api/profiles/{pid}")
+def profiles_delete(pid: int):
+    p = db.get_profile(pid)
+    if not p:
+        raise HTTPException(404, "Profil inconnu.")
+    if db.query_one("SELECT COUNT(*) AS c FROM profiles")["c"] <= 1:
+        raise HTTPException(409, "Impossible de supprimer le dernier profil.")
+    db.delete_profile(pid)
+    return {"deleted": True}
+
+
 @app.get("/api/notifications")
-def notifications_list(status: str | None = None):
-    return db.list_notifications(status)
+def notifications_list(status: str | None = None, agent_id: int | None = None,
+                       type: str | None = None):
+    return db.list_notifications(status, agent_id, type)
 
 
 @app.post("/api/notifications/{nid}/answer")
@@ -662,16 +742,16 @@ def providers_delete(pid: int):
 # ---------------------------------------------------------------------------
 
 @app.get("/api/stats/tokens")
-def stats_tokens(days: int = 30):
-    summary = db.tokens_summary()
+def stats_tokens(days: int = 30, period: str | None = None):
+    summary = db.tokens_summary(period)
     return {
         "total": {"input_tokens": summary["input_tokens"], "output_tokens": summary["output_tokens"]},
         "summary": summary,
-        "by_agent": db.tokens_by_agent(),
-        "by_provider": db.tokens_by_provider(),
-        "by_project": db.tokens_by_project(),
-        "by_category": db.tokens_by_category(),
-        "by_day": list(reversed(db.tokens_by_day(days))),   # ancien → récent
+        "by_agent": db.tokens_by_agent(period),
+        "by_provider": db.tokens_by_provider(period),
+        "by_project": db.tokens_by_project(period),
+        "by_category": db.tokens_by_category(period),
+        "by_day": list(reversed(db.tokens_by_day(days, period))),   # ancien → récent
     }
 
 
