@@ -1019,7 +1019,7 @@ function renderAgentList() {
 async function selectAgent(id) {
   selectedAgent = agents.find(a => a.id === id);
   if (!selectedAgent) return;
-  selectedSession = null; lastEventId = 0; activeDetailTab = 0;
+  selectedSession = null; lastEventId = 0; activeDetailTab = 0; detailArtPath = '';
   $('#detail').innerHTML = `
     <div style="padding:14px 20px 0">
       <div class="detail-head" id="d-head"></div>
@@ -1077,7 +1077,6 @@ async function selectAgent(id) {
 let detailArtifacts = [], detailArtPath = '';
 async function loadDetailArtifacts(){
   if (!selectedAgent) return;
-  detailArtPath = '';
   try { detailArtifacts = await api(`/api/agents/${selectedAgent.id}/artifacts`); }
   catch(e){ detailArtifacts = []; }
   renderDetailArtifacts();
