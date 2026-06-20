@@ -880,8 +880,9 @@ async function loadDash(){
     const qCount = filteredQs.length;
     $('#dash-q-count').textContent = qCount ? `(${qCount})` : '(aucune)';
     qEl.style.display = '';
-    // Ne pas réécrire le bloc si l'utilisateur est en train de taper une réponse
-    const qTyping = document.activeElement && $('#dash-q-list').contains(document.activeElement);
+    // Ne pas réécrire le bloc uniquement si un champ de saisie est actif (pas si c'est un bouton)
+    const ae = document.activeElement;
+    const qTyping = ae && ['INPUT','TEXTAREA'].includes(ae.tagName) && $('#dash-q-list').contains(ae);
     if (!qTyping) {
       if (qCount) { qEl.open = true; }
       $('#dash-q-list').innerHTML = qCount ? filteredQs.map(n=>`
@@ -1619,8 +1620,9 @@ document.addEventListener('click', e=>{
   if (p.classList.contains('open') && !p.contains(e.target)) p.classList.remove('open');
 });
 async function loadNotifs(){
-  // Ne pas écraser une réponse en cours de saisie lors d'un rafraîchissement périodique.
-  if (document.activeElement && $('#notifs-list').contains(document.activeElement)) return;
+  // Ne pas écraser si un champ de saisie est actif (mais laisser passer si c'est un bouton)
+  const ael = document.activeElement;
+  if (ael && ['INPUT','TEXTAREA'].includes(ael.tagName) && $('#notifs-list').contains(ael)) return;
   const f=$('#n-filter').value;
   const list = await api('/api/notifications'+(f?`?status=${f}`:''));
   $('#notifs-list').innerHTML = list.map(n=>`
