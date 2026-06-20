@@ -880,8 +880,11 @@ async function loadDash(){
     const qCount = filteredQs.length;
     $('#dash-q-count').textContent = qCount ? `(${qCount})` : '(aucune)';
     qEl.style.display = '';
-    if (qCount) { qEl.open = true; }
-    $('#dash-q-list').innerHTML = qCount ? filteredQs.map(n=>`
+    // Ne pas réécrire le bloc si l'utilisateur est en train de taper une réponse
+    const qTyping = document.activeElement && $('#dash-q-list').contains(document.activeElement);
+    if (!qTyping) {
+      if (qCount) { qEl.open = true; }
+      $('#dash-q-list').innerHTML = qCount ? filteredQs.map(n=>`
       <div class="notif question" style="margin-bottom:10px">
         <div class="nhead"><span class="ntype">❓ Question</span> · ${esc(n.agent_name)} · ${fmtTs(n.created_at)}</div>
         <div class="ncontent">${md(n.content)}</div>
@@ -894,6 +897,7 @@ async function loadDash(){
           </div>
         </div>
       </div>`).join('') : '<div class="empty">Aucune question en attente.</div>';
+    } // fin if (!qTyping)
 
     // Agents : colonnes par groupe d'état
     const stateGroups = [
