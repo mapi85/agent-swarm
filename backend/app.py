@@ -585,7 +585,10 @@ def resources_link(body: LinkResource):
 async def resources_upload(file: UploadFile = File(...), scope: str = Form("shared"),
                            agent_id: int | None = Form(None), task_id: int | None = Form(None),
                            description: str = Form("")):
+    MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 Mo
     data = await file.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, f"Fichier trop volumineux ({len(data)//1024//1024} Mo). Limite : 100 Mo.")
     safe = Path(file.filename or "fichier").name
     rid = db.create_resource(scope, agent_id, task_id, safe, "file", "", None, description, len(data), "user")
     stored = f"{rid}_{safe}"

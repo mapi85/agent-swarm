@@ -1063,6 +1063,10 @@ async function selectAgent(id) {
     <div style="padding:14px 20px 0">
       <div class="detail-head" id="d-head"></div>
     </div>
+    <details id="d-pending-question" class="tile" style="display:none;margin:0 14px 6px;border-left:4px solid var(--purple)">
+      <summary><b style="color:var(--purple)">❓ Question en attente</b></summary>
+      <div class="tile-body" id="d-pending-question-body"></div>
+    </details>
     <div class="tab-bar">
       <button class="tab-btn active" onclick="switchDetailTab(0)">Description</button>
       <button class="tab-btn" onclick="switchDetailTab(1)">Sessions &amp; tâches</button>
@@ -1232,27 +1236,61 @@ async function refreshLists() {
       </div>`;
   }
 
+  // ---- Bloc question replié au-dessus des onglets ----
+  const openQs = agentNotifs.filter(n=>n.type==='question');
+  const pqEl = $('#d-pending-question');
+  const pqBody = $('#d-pending-question-body');
+  if (pqEl && pqBody) {
+    if (openQs.length) {
+      pqEl.style.display = '';
+      const ae0 = document.activeElement;
+      if (!(ae0 && ['INPUT','TEXTAREA'].includes(ae0.tagName) && pqBody.contains(ae0))) {
+        pqEl.open = true;
+        pqBody.innerHTML = openQs.map(n=>`
+          <div class="notif question" style="margin-bottom:10px">
+            <div class="nhead"><span class="ntype">❓ Question</span> · ${fmtTs(n.created_at)}</div>
+            <div class="ncontent">${md(n.content)}</div>
+            <div class="nreply">
+              <textarea id="pq-${n.id}" placeholder="Ta réponse… (Ctrl+Entrée pour envoyer)"
+                onkeydown="if(event.ctrlKey&&event.key==='Enter')answerNotif(${n.id},'pq-')"></textarea>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <button class="small" onclick="answerNotif(${n.id},'pq-')">Répondre</button>
+                <button class="small secondary" onclick="dismissNotif(${n.id})">Ignorer</button>
+              </div>
+            </div>
+          </div>`).join('');
+      }
+    } else {
+      pqEl.style.display = 'none';
+    }
+  }
+
   // ---- Onglet 1 : notifications de l'agent ----
   const nEl = $('#d-agent-notifs');
   if (nEl) {
-    nEl.innerHTML = agentNotifs.length ? agentNotifs.map(n=>`
-      <div class="notif ${n.type} ${n.status}" style="margin-bottom:10px">
-        <div class="nhead"><span class="ntype">${n.type==='question'?'❓ Question':'🔔 Alerte'}</span>
-          · ${fmtTs(n.created_at)} · <span class="st ${n.status==='open'?'pending':'done'}">${n.status}</span></div>
-        <div class="ncontent">${md(n.content)}</div>
-        ${n.response?`<div class="nanswer">↩ ${esc(n.response)}`:''}
-        ${n.status==='open'&&n.type==='question'?`
-          <div class="nreply">
-            <textarea id="an-${n.id}" placeholder="Ta réponse… (Ctrl+Entrée pour envoyer)"
-              onkeydown="if(event.ctrlKey&&event.key==='Enter')answerNotif(${n.id},'an-')"></textarea>
-            <div style="display:flex;flex-direction:column;gap:6px">
-              <button class="small" onclick="answerNotif(${n.id},'an-')">Répondre</button>
-              <button class="small secondary" onclick="dismissNotif(${n.id})">Ignorer</button>
-            </div>
-          </div>`:''}
-        ${n.status==='open'&&n.type==='alert'?`
-          <div class="nreply"><button class="small secondary" onclick="dismissNotif(${n.id})">Marquer comme lu</button></div>`:''}
-      </div>`).join('') : '<div class="empty" style="padding:14px 0">Aucune notification ouverte pour cet agent.</div>';
+    const ae1 = document.activeElement;
+    if (ae1 && ['INPUT','TEXTAREA'].includes(ae1.tagName) && nEl.contains(ae1)) {
+      // Ne pas réécrire pendant la saisie
+    } else {
+      nEl.innerHTML = agentNotifs.length ? agentNotifs.map(n=>`
+        <div class="notif ${n.type} ${n.status}" style="margin-bottom:10px">
+          <div class="nhead"><span class="ntype">${n.type==='question'?'❓ Question':'🔔 Alerte'}</span>
+            · ${fmtTs(n.created_at)} · <span class="st ${n.status==='open'?'pending':'done'}">${n.status}</span></div>
+          <div class="ncontent">${md(n.content)}</div>
+          ${n.response?`<div class="nanswer">↩ ${esc(n.response)}</div>`:''}
+          ${n.status==='open'&&n.type==='question'?`
+            <div class="nreply">
+              <textarea id="an-${n.id}" placeholder="Ta réponse… (Ctrl+Entrée pour envoyer)"
+                onkeydown="if(event.ctrlKey&&event.key==='Enter')answerNotif(${n.id},'an-')"></textarea>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <button class="small" onclick="answerNotif(${n.id},'an-')">Répondre</button>
+                <button class="small secondary" onclick="dismissNotif(${n.id})">Ignorer</button>
+              </div>
+            </div>`:''}
+          ${n.status==='open'&&n.type==='alert'?`
+            <div class="nreply"><button class="small secondary" onclick="dismissNotif(${n.id})">Marquer comme lu</button></div>`:''}
+        </div>`).join('') : '<div class="empty" style="padding:14px 0">Aucune notification ouverte pour cet agent.</div>';
+    }
   }
 
   // ---- Onglet 2 : sessions, tâches, services ----
