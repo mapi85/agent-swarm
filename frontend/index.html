@@ -302,11 +302,14 @@
     header h1 .htxt{display:none}
     #view-super.active{display:block;height:auto}
     #agents-col{border-right:0;border-bottom:1px solid var(--border);max-height:46vh;overflow-y:auto}
-    #detail{padding:14px}
+    #detail{padding:0}
     .cols{grid-template-columns:1fr}
     .page{padding:14px}
     #events{max-height:none}
     .kpi .kv{font-size:19px}
+    .tab-pane{padding:12px 14px}
+    /* sessions : boutons flottants en ligne séparée */
+    .session-item .si-actions{float:none;display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
   }
   @media(max-width:560px){
     body{font-size:13.5px}
@@ -321,7 +324,8 @@
     .dash-grid{grid-template-columns:1fr}
     .page{padding:11px}
     .page h2{font-size:18px}
-    #detail{padding:11px}
+    #detail{padding:0}
+    .tab-pane{padding:10px 11px}
     .detail-head h2{font-size:17px}
     .actions{gap:6px}
     .actions button{flex:1 1 auto}
@@ -333,6 +337,18 @@
     dialog{padding:16px 15px;border-radius:11px 11px 0 0;width:100vw;max-width:100vw;max-height:92vh;overflow-y:auto;margin:auto 0 0;position:fixed;bottom:0;left:0}
     .bars{height:120px}
     .md-body{padding:12px 13px}
+    /* session / tâche items : overflow masqué */
+    .session-item .obj,.task-item .tsum{font-size:12.5px}
+    .session-item .sub,.task-item .sub{font-size:11px}
+    /* boutons flottants dans les items de session : passer en block */
+    .session-item > div > button[style*="float"]{float:none !important;display:inline-flex;margin-top:6px}
+    .session-item > div > span[style*="float"]{float:none !important;display:flex;margin-top:6px;gap:6px}
+    /* tableaux stats : scroll horizontal */
+    .stats-t{font-size:12px}
+    table.stats-t th,table.stats-t td{padding:5px 8px}
+    .bars{padding:10px}
+    .bar-val{font-size:8px}
+    .bar-lbl{font-size:8px}
   }
 </style>
 </head>
@@ -668,13 +684,16 @@ function openProfileOverlay(){
   $('#profile-overlay').classList.remove('hidden');
 }
 function renderProfileList(){
+  // JSON.stringify produit des guillemets doubles : on les encode pour ne pas casser l'attribut onclick="..."
+  const ej = s => esc(JSON.stringify(s));
   $('#profile-list').innerHTML = profilesList.map(p=>`
-    <div class="profile-item" onclick="selectProfile(${p.id},${JSON.stringify(p.name)})">
+    <div class="profile-item" onclick="selectProfile(${p.id},${ej(p.name)})">
       <span class="pi-ico">👤</span>
       <div><div class="pi-name">${esc(p.name)}</div>
         <div class="pi-sub">${p.agents_count} agent(s)</div></div>
     </div>`).join('') + `
-    <div class="profile-item" onclick="selectProfile(null,'Tous les agents')" style="${!currentProfileId?'border-color:var(--accent);background:var(--accent-soft)':''}">
+    <div class="profile-item" onclick="selectProfile(null,${ej('Tous les agents')})"
+      style="${!currentProfileId?'border-color:var(--accent);background:var(--accent-soft)':''}">
       <span class="pi-ico">🌐</span>
       <div><div class="pi-name">Tous les agents</div>
         <div class="pi-sub">Vue globale sans filtre de profil</div></div>
@@ -971,8 +990,15 @@ async function selectAgent(id) {
   if (!selectedAgent) return;
   selectedSession = null; lastEventId = 0; activeDetailTab = 0;
   $('#detail').innerHTML = `
-    <div style="padding:16px 22px 0">
+    <div style="padding:14px 20px 0">
       <div class="detail-head" id="d-head"></div>
+    </div>
+    <div class="tab-bar">
+      <button class="tab-btn active" onclick="switchDetailTab(0)">Description</button>
+      <button class="tab-btn" onclick="switchDetailTab(1)">Sessions &amp; tâches</button>
+      <button class="tab-btn" onclick="switchDetailTab(2)">Artefacts</button>
+    </div>
+    <div class="tab-pane active" id="tab-desc">
       <div class="mission" id="d-mission"></div>
       <div class="actions">
         <button class="small" onclick="dlgTask.showModal()">+ Tâche</button>
@@ -981,13 +1007,6 @@ async function selectAgent(id) {
         <button class="small secondary" id="d-pause"></button>
         <button class="small danger" onclick="deleteAgent()">🗑 Supprimer</button>
       </div>
-    </div>
-    <div class="tab-bar">
-      <button class="tab-btn active" onclick="switchDetailTab(0)">Description</button>
-      <button class="tab-btn" onclick="switchDetailTab(1)">Sessions &amp; tâches</button>
-      <button class="tab-btn" onclick="switchDetailTab(2)">Artefacts</button>
-    </div>
-    <div class="tab-pane active" id="tab-desc">
       <div id="d-agent-notifs"></div>
     </div>
     <div class="tab-pane" id="tab-sessions">
@@ -999,11 +1018,11 @@ async function selectAgent(id) {
           <details class="panel" open style="margin-top:14px"><summary>Tâches</summary><div id="d-tasks"></div></details>
           <details class="panel" style="margin-top:14px"><summary>Services</summary><div id="d-services"></div></details>
         </div>
-        <div class="panel">
-          <h3 id="ev-title">Flux de la session</h3>
+        <details class="panel" id="d-flux-details">
+          <summary id="ev-title">Flux de la session</summary>
           <div id="events"><div class="ev" style="color:var(--muted)">Sélectionne une session.</div></div>
           <div class="report" id="d-report" style="display:none"></div>
-        </div>
+        </details>
       </div>
     </div>
     <div class="tab-pane" id="tab-artifacts">
@@ -1177,7 +1196,8 @@ async function pollEvents() {
   if (selectedSession.planned){
     const session = await api(`/api/sessions/${selectedSession.id}`);
     if (session.status !== 'planned'){ selectedSession.planned = false; return pollEvents(); }
-    $('#ev-title').textContent = `Session n°${session.number} (planifiée)`;
+    $('#ev-title').textContent = `Flux — session n°${session.number} (planifiée)`;
+    const fd = $('#d-flux-details'); if(fd) fd.open = true;
     $('#d-report').style.display = 'none';
     $('#events').innerHTML = `<div style="padding:10px 14px">
       <div class="report-h" style="padding:0 0 6px">🎯 Objectif de la session planifiée</div>
@@ -1193,6 +1213,7 @@ async function pollEvents() {
   const [session, events] = await Promise.all([
     api(`/api/sessions/${selectedSession.id}`), api(`/api/sessions/${selectedSession.id}/events?after=${lastEventId}`)]);
   $('#ev-title').textContent = `Flux — session n°${session.number} (${session.status})`;
+  const fd = $('#d-flux-details'); if(fd) fd.open = true;
   const box = $('#events');
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
   for (const ev of events) {
