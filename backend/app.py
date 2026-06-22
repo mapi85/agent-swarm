@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import config, db, planner, providers, runtime, scheduler
+from . import config, db, notify, planner, providers, runtime, scheduler
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
@@ -70,6 +70,8 @@ async def _auth_middleware(request: Request, call_next):
     if not path.startswith("/api/") or path in _AUTH_PUBLIC:
         return await call_next(request)
     if path == "/api/profiles" and request.method == "GET":
+        return await call_next(request)
+    if path.startswith("/api/webhooks/"):
         return await call_next(request)
     if not config.ADMIN_PASSWORD:           # pas de mot de passe → accès libre
         return await call_next(request)
@@ -953,6 +955,176 @@ def projects_delete(pid: int):
         db.execute(f"DELETE FROM tasks WHERE id IN ({ph})", tuple(ids))
     db.delete_project(pid)
     return {"deleted": True, "tasks_deleted": len(ids)}
+
+
+# ---------------------------------------------------------------------------
+# Canaux de notification
+# ---------------------------------------------------------------------------
+
+class ChannelCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    type: str                       # email | telegram
+    config: dict = {}
+    enabled: bool = True
+    assign_notifs: bool = False     # activer alertes pour tous les agents existants
+    assign_questions: bool = False  # activer questions pour tous les agents existants
+
+
+class ChannelUpdate(BaseModel):
+    name: str | None = None
+    config: dict | None = None
+    enabled: bool | None = None
+
+
+class AgentChannelEntry(BaseModel):
+    channel_id: int
+    use_notifs: bool
+    use_questions: bool
+
+
+class SmtpConfig(BaseModel):
+    host: str = ""
+    port: int = 587
+    user: str = ""
+    password: str = ""
+    from_addr: str = ""
+
+
+def _mask_channel(ch: dict) -> dict:
+    if ch and ch.get("type") == "telegram" and ch.get("config", {}).get("bot_token"):
+        ch = {**ch, "config": {**ch["config"], "bot_token": "***"}}
+    return ch
+
+
+@app.get("/api/settings/smtp")
+def settings_smtp_get():
+    stored = db.get_setting("smtp_config", {})
+    return {
+        "host": stored.get("host") or config.SMTP_HOST,
+        "port": int(stored.get("port") or config.SMTP_PORT or 587),
+        "user": stored.get("user") or config.SMTP_USER,
+        "from_addr": stored.get("from_addr") or config.SMTP_FROM,
+        "password_set": bool(stored.get("password") or config.SMTP_PASSWORD),
+    }
+
+
+@app.put("/api/settings/smtp", status_code=204)
+def settings_smtp_put(body: SmtpConfig):
+    if not body.password:
+        existing = db.get_setting("smtp_config", {})
+        body.password = existing.get("password", "")
+    db.set_setting("smtp_config", body.model_dump())
+
+
+@app.post("/api/settings/smtp/test")
+async def settings_smtp_test():
+    cfg = notify._smtp_cfg()
+    to = cfg["user"] or cfg["from_addr"]
+    if not to:
+        return {"result": "Configurez d'abord l'adresse utilisateur SMTP."}
+    ch = {"type": "email", "config": {"to": to}}
+    return {"result": await notify.send_test(ch)}
+
+
+@app.get("/api/channels")
+def channels_list():
+    return [_mask_channel(ch) for ch in db.list_channels()]
+
+
+@app.post("/api/channels", status_code=201)
+async def channels_create(body: ChannelCreate, request: Request):
+    if body.type not in ("email", "telegram"):
+        raise HTTPException(400, "Type invalide (email | telegram).")
+    cid = db.create_channel(body.name, body.type, body.config, body.enabled)
+    if body.assign_notifs or body.assign_questions:
+        db.assign_channel_to_all_agents(cid, body.assign_notifs, body.assign_questions)
+    if body.type == "telegram" and body.config.get("bot_token"):
+        base_url = str(request.base_url).rstrip("/")
+        await notify.register_telegram_webhook(body.config["bot_token"], cid, base_url)
+    return _mask_channel(db.get_channel(cid))
+
+
+@app.patch("/api/channels/{cid}")
+async def channels_update(cid: int, body: ChannelUpdate, request: Request):
+    ch = db.get_channel(cid)
+    if not ch:
+        raise HTTPException(404, "Canal inconnu.")
+    fields: dict = {}
+    if body.name is not None:
+        fields["name"] = body.name
+    if body.enabled is not None:
+        fields["enabled"] = body.enabled
+    if body.config is not None:
+        merged = {**ch["config"]}
+        for k, v in body.config.items():
+            if v != "***":
+                merged[k] = v
+        fields["config"] = merged
+    if fields:
+        db.update_channel(cid, **fields)
+    ch = db.get_channel(cid)
+    if ch["type"] == "telegram":
+        new_token = (body.config or {}).get("bot_token", "")
+        if new_token and new_token != "***":
+            base_url = str(request.base_url).rstrip("/")
+            await notify.register_telegram_webhook(new_token, cid, base_url)
+    return _mask_channel(ch)
+
+
+@app.delete("/api/channels/{cid}")
+def channels_delete(cid: int):
+    if not db.get_channel(cid):
+        raise HTTPException(404, "Canal inconnu.")
+    db.delete_channel(cid)
+    return {"deleted": True}
+
+
+@app.post("/api/channels/{cid}/test")
+async def channels_test(cid: int, request: Request):
+    ch = db.get_channel(cid)
+    if not ch:
+        raise HTTPException(404, "Canal inconnu.")
+    if ch["type"] == "telegram" and ch["config"].get("bot_token"):
+        base_url = str(request.base_url).rstrip("/")
+        await notify.register_telegram_webhook(ch["config"]["bot_token"], cid, base_url)
+    return {"result": await notify.send_test(ch)}
+
+
+@app.get("/api/agents/{agent_id}/channels")
+def agent_channels_get(agent_id: int):
+    if not db.get_agent(agent_id):
+        raise HTTPException(404, "Agent inconnu.")
+    return [_mask_channel(ch) for ch in db.get_agent_channels(agent_id)]
+
+
+@app.put("/api/agents/{agent_id}/channels")
+def agent_channels_put(agent_id: int, body: list[AgentChannelEntry]):
+    if not db.get_agent(agent_id):
+        raise HTTPException(404, "Agent inconnu.")
+    for entry in body:
+        if db.get_channel(entry.channel_id):
+            db.set_agent_channel(agent_id, entry.channel_id, entry.use_notifs, entry.use_questions)
+    return [_mask_channel(ch) for ch in db.get_agent_channels(agent_id)]
+
+
+@app.post("/api/webhooks/telegram/{cid}")
+async def telegram_webhook(cid: int, request: Request):
+    try:
+        update = await request.json()
+    except Exception:
+        return {"ok": True}
+    msg = update.get("message") or update.get("edited_message") or {}
+    reply_to = msg.get("reply_to_message") or {}
+    if reply_to:
+        reply_to_id = reply_to.get("message_id")
+        text = (msg.get("text") or "").strip()
+        if reply_to_id and text:
+            notif = db.find_notification_by_telegram(cid, reply_to_id)
+            if notif:
+                db.answer_notification(notif["id"], text)
+                if not db.open_questions(notif["agent_id"]):
+                    db.advance_planned_sessions(notif["agent_id"])
+    return {"ok": True}
 
 
 # Front statique — monté en dernier

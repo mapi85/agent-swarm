@@ -175,6 +175,23 @@ CREATE TABLE IF NOT EXISTS services (
     updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_svc_agent ON services(agent_id);
+
+CREATE TABLE IF NOT EXISTS notification_channels (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT NOT NULL,
+    type       TEXT NOT NULL,
+    config     TEXT NOT NULL DEFAULT '{}',
+    enabled    INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agent_channels (
+    agent_id      INTEGER NOT NULL REFERENCES agents(id),
+    channel_id    INTEGER NOT NULL REFERENCES notification_channels(id),
+    use_notifs    INTEGER NOT NULL DEFAULT 1,
+    use_questions INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (agent_id, channel_id)
+);
 """
 
 
@@ -226,6 +243,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
             conn.execute("UPDATE providers SET models = ? WHERE id = ?",
                          (json.dumps(models), p["id"]))
     _seed_providers(conn)
+    ncols = {r["name"] for r in conn.execute("PRAGMA table_info(notifications)")}
+    if "external_ids" not in ncols:
+        conn.execute("ALTER TABLE notifications ADD COLUMN external_ids TEXT")
+    if "channel_dispatched" not in ncols:
+        conn.execute("ALTER TABLE notifications ADD COLUMN channel_dispatched INTEGER NOT NULL DEFAULT 0")
     conn.commit()
 
 
@@ -351,6 +373,7 @@ def delete_agent(agent_id: int) -> None:
     execute("DELETE FROM memories WHERE agent_id = ?", (agent_id,))
     execute("DELETE FROM services WHERE agent_id = ?", (agent_id,))
     execute("DELETE FROM tasks WHERE agent_id = ? AND project_id IS NULL", (agent_id,))
+    execute("DELETE FROM agent_channels WHERE agent_id = ?", (agent_id,))
     execute("DELETE FROM agents WHERE id = ?", (agent_id,))
 
 
@@ -943,3 +966,95 @@ def port_in_use(port: int) -> dict | None:
 def set_service_status(service_id, agent_id, status) -> None:
     execute("UPDATE services SET status = ?, updated_at = ? WHERE id = ? AND agent_id = ?",
             (status, now(), service_id, agent_id))
+
+
+# ---------- Canaux de notification ----------
+
+def list_channels() -> list[dict]:
+    rows = query("SELECT * FROM notification_channels ORDER BY id")
+    for r in rows:
+        r["config"] = json.loads(r["config"] or "{}")
+    return rows
+
+
+def get_channel(cid: int) -> dict | None:
+    r = query_one("SELECT * FROM notification_channels WHERE id = ?", (cid,))
+    if r:
+        r["config"] = json.loads(r["config"] or "{}")
+    return r
+
+
+def create_channel(name: str, type_: str, config_dict: dict, enabled: bool = True) -> int:
+    return execute(
+        "INSERT INTO notification_channels (name, type, config, enabled, created_at) VALUES (?, ?, ?, ?, ?)",
+        (name, type_, json.dumps(config_dict, ensure_ascii=False), 1 if enabled else 0, now()))
+
+
+def update_channel(cid: int, **fields) -> None:
+    if "config" in fields and isinstance(fields["config"], dict):
+        fields["config"] = json.dumps(fields["config"], ensure_ascii=False)
+    if "enabled" in fields:
+        fields["enabled"] = 1 if fields["enabled"] else 0
+    cols = ", ".join(f"{k} = ?" for k in fields)
+    execute(f"UPDATE notification_channels SET {cols} WHERE id = ?", (*fields.values(), cid))
+
+
+def delete_channel(cid: int) -> None:
+    execute("DELETE FROM agent_channels WHERE channel_id = ?", (cid,))
+    execute("DELETE FROM notification_channels WHERE id = ?", (cid,))
+
+
+def assign_channel_to_all_agents(channel_id: int, use_notifs: bool, use_questions: bool) -> None:
+    for a in list_agents():
+        set_agent_channel(a["id"], channel_id, use_notifs, use_questions)
+
+
+def get_agent_channels(agent_id: int) -> list[dict]:
+    channels = list_channels()
+    subs = {r["channel_id"]: r for r in query(
+        "SELECT * FROM agent_channels WHERE agent_id = ?", (agent_id,))}
+    for ch in channels:
+        sub = subs.get(ch["id"], {})
+        ch["use_notifs"] = bool(sub.get("use_notifs", 0))
+        ch["use_questions"] = bool(sub.get("use_questions", 0))
+    return channels
+
+
+def set_agent_channel(agent_id: int, channel_id: int, use_notifs: bool, use_questions: bool) -> None:
+    execute(
+        "INSERT INTO agent_channels (agent_id, channel_id, use_notifs, use_questions) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(agent_id, channel_id) DO UPDATE SET use_notifs = excluded.use_notifs, "
+        "use_questions = excluded.use_questions",
+        (agent_id, channel_id, 1 if use_notifs else 0, 1 if use_questions else 0))
+
+
+def channels_for_dispatch(agent_id: int, notif_type: str) -> list[dict]:
+    col = "ac.use_questions" if notif_type == "question" else "ac.use_notifs"
+    rows = query(
+        f"SELECT nc.* FROM notification_channels nc "
+        f"JOIN agent_channels ac ON ac.channel_id = nc.id "
+        f"WHERE ac.agent_id = ? AND nc.enabled = 1 AND {col} = 1",
+        (agent_id,))
+    for r in rows:
+        r["config"] = json.loads(r["config"] or "{}")
+    return rows
+
+
+def undispatched_notifications() -> list[dict]:
+    return query(
+        "SELECT n.*, a.name AS agent_name FROM notifications n "
+        "JOIN agents a ON a.id = n.agent_id "
+        "WHERE n.status = 'open' AND n.channel_dispatched = 0 ORDER BY n.id")
+
+
+def mark_notification_channel_dispatched(nid: int, external_ids: dict) -> None:
+    execute("UPDATE notifications SET channel_dispatched = 1, external_ids = ? WHERE id = ?",
+            (json.dumps(external_ids, ensure_ascii=False), nid))
+
+
+def find_notification_by_telegram(channel_id: int, message_id: int) -> dict | None:
+    key = f"t_{channel_id}"
+    return query_one(
+        f"SELECT * FROM notifications WHERE type = 'question' AND status = 'open' "
+        f"AND json_extract(external_ids, '$.{key}') = ?",
+        (message_id,))

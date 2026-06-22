@@ -277,6 +277,22 @@
   .logo-hex{display:inline-block;flex:none}
   .profile-chip{display:inline-flex;align-items:center;gap:6px;background:var(--accent-soft);color:var(--accent);border:1px solid #cfe0fb;border-radius:16px;padding:4px 11px;font-size:12px;cursor:pointer;margin-left:8px;flex:none;font-weight:600}
   .profile-chip:hover{border-color:var(--accent)}
+  /* ===== Canaux de notification ===== */
+  .ch-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
+  .ch-table th{text-align:left;font-weight:600;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--muted);font-size:12px}
+  .ch-table td{padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
+  .ch-table input[type=checkbox]{width:auto;margin:0}
+  .ch-table td:last-child,.ch-table th:last-child{text-align:center}
+  .smtp-grid{display:grid;grid-template-columns:auto 1fr;gap:8px 14px;align-items:center;max-width:520px;margin-bottom:12px}
+  .smtp-grid label{font-size:13px;font-weight:600;white-space:nowrap}
+  .smtp-grid input{margin:0}
+  @media(max-width:560px){
+    .smtp-grid{grid-template-columns:1fr}
+    .ch-table thead{display:none}
+    .ch-table tr{display:flex;flex-wrap:wrap;gap:4px;padding:8px 0;border-bottom:1px solid var(--border)}
+    .ch-table td{border:0;padding:2px 4px}
+    .ch-table td:first-child{font-weight:600;flex:1 1 100%}
+  }
   /* ===== Onglets supervision ===== */
   .tab-bar{display:flex;border-bottom:1px solid var(--border);background:var(--panel);margin:12px 0 0;flex-shrink:0}
   .tab-btn{background:none;border:0;border-bottom:2px solid transparent;color:var(--muted);padding:9px 18px;font-size:13px;cursor:pointer;margin-bottom:-1px;border-radius:0;font-weight:500;white-space:nowrap}
@@ -537,6 +553,28 @@
 <!-- ============ RÉGLAGES ============ -->
 <div id="view-settings" class="view">
   <div class="page">
+    <h2>SMTP (email sortant)</h2>
+    <div class="sub">Serveur d'envoi pour les notifications par email. Les valeurs vides utilisent les variables d'environnement (SMTP_HOST, etc.).</div>
+    <div class="smtp-grid">
+      <label for="smtp-host">Serveur</label><input id="smtp-host" placeholder="smtp.gmail.com">
+      <label for="smtp-port">Port</label><input id="smtp-port" type="number" value="587" min="1" max="65535">
+      <label for="smtp-user">Utilisateur</label><input id="smtp-user" placeholder="user@exemple.fr">
+      <label for="smtp-pwd">Mot de passe</label><input id="smtp-pwd" type="password" placeholder="(inchangé si vide)">
+      <label for="smtp-from">Expéditeur</label><input id="smtp-from" placeholder="L'Essaim &lt;no-reply@exemple.fr&gt;">
+    </div>
+    <div class="toolbar" style="margin-top:0">
+      <button onclick="saveSmtp()">Enregistrer</button>
+      <button class="secondary" onclick="testSmtp()">Tester (envoi à l'utilisateur)</button>
+    </div>
+    <div id="smtp-result" style="min-height:16px;font-size:13px;color:var(--muted);margin-top:4px"></div>
+  </div>
+  <div class="page" style="margin-top:0;border-top:1px solid var(--border)">
+    <h2>Canaux de notification</h2>
+    <div class="sub">Email et Telegram pour recevoir alertes et questions hors du navigateur. Les canaux peuvent être activés indépendamment par agent (onglet Description).</div>
+    <div class="toolbar"><button onclick="openChannelDlg(null)">+ Ajouter un canal</button></div>
+    <div id="channels-list"></div>
+  </div>
+  <div class="page" style="margin-top:0;border-top:1px solid var(--border)">
     <h2>Providers LLM</h2>
     <div class="sub">Déclare un ou plusieurs fournisseurs (Anthropic ou compatible, OpenAI ou compatible). Chaque agent peut être rattaché à un provider ; sinon il utilise le provider par défaut.</div>
     <div class="toolbar"><button onclick="openProviderDlg(null)">+ Ajouter un provider</button></div>
@@ -607,6 +645,39 @@
     <label for="p-default">Provider par défaut de la plateforme</label>
   </div>
   <div class="dialog-actions"><button class="secondary" onclick="dlgProvider.close()">Annuler</button><button onclick="saveProvider()">Enregistrer</button></div>
+</dialog>
+
+<dialog id="dlgChannel">
+  <h3 id="dlgChannel-title">Ajouter un canal</h3>
+  <label>Nom</label>
+  <input id="ch-name" placeholder="ex. Mon email perso">
+  <label>Type</label>
+  <select id="ch-type" onchange="channelTypeChange()">
+    <option value="email">📧 Email</option>
+    <option value="telegram">✈️ Telegram</option>
+  </select>
+  <div id="ch-email-fields">
+    <label>Adresse destinataire</label>
+    <input id="ch-email-to" type="email" placeholder="moi@exemple.fr">
+  </div>
+  <div id="ch-tg-fields" style="display:none">
+    <label>Token du bot</label>
+    <input id="ch-tg-token" type="password" placeholder="1234567890:ABCdef… (vide = inchangé)">
+    <label>Chat ID</label>
+    <input id="ch-tg-chatid" placeholder="-100123456789">
+    <div class="hint">Créez votre bot via @BotFather → copiez le token. Envoyez un message au bot puis obtenez le Chat ID via @userinfobot.</div>
+  </div>
+  <div id="ch-assign-wrap" style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
+    <div style="font-weight:600;font-size:13px;margin-bottom:8px">Activer pour les agents existants</div>
+    <div class="row-inline"><input type="checkbox" id="ch-assign-notifs"><label for="ch-assign-notifs">Alertes</label></div>
+    <div class="row-inline" id="ch-assign-q-wrap"><input type="checkbox" id="ch-assign-questions"><label for="ch-assign-questions">Questions (réponse dans le canal)</label></div>
+  </div>
+  <div id="ch-test-result" style="min-height:16px;font-size:12px;color:var(--muted);margin-top:8px"></div>
+  <div class="dialog-actions">
+    <button class="secondary" onclick="dlgChannel.close()">Annuler</button>
+    <button class="secondary" id="ch-test-btn" onclick="testChannelFromDlg()">Tester</button>
+    <button onclick="saveChannel()">Enregistrer</button>
+  </div>
 </dialog>
 
 <dialog id="dlgRunNow">
@@ -856,7 +927,7 @@ function showView(v){
   if (v==='dash') loadDash();
   if (v==='missions') loadProjects();
   if (v==='explorer'){ populateSelects(); loadArtifacts(); }
-  if (v==='settings') loadProviders();
+  if (v==='settings'){ loadSmtp(); loadChannels(); loadProviders(); }
 }
 function switchExplorerTab(idx){
   document.querySelectorAll('#view-explorer .tab-btn').forEach((b,i)=>b.classList.toggle('active',i===idx));
@@ -1084,6 +1155,10 @@ async function selectAgent(id) {
       </div>
       <div id="d-last-report"></div>
       <div id="d-agent-resources"></div>
+      <details class="tile" id="d-agent-channels-wrap" style="margin-bottom:12px;display:none">
+        <summary><b>📡 Canaux de notification</b></summary>
+        <div class="tile-body" id="d-agent-channels"></div>
+      </details>
       <div id="d-agent-notifs"></div>
     </div>
     <div class="tab-pane" id="tab-sessions">
@@ -1115,6 +1190,46 @@ async function selectAgent(id) {
       <div class="card-list" id="da-list"></div>
     </div>`;
   renderDetailHead(); await refreshLists(); renderAgentList();
+  loadAgentChannels();
+}
+
+async function loadAgentChannels(){
+  const el=$('#d-agent-channels-wrap');
+  if(!el||!selectedAgent) return;
+  try{
+    const channels=await api(`/api/agents/${selectedAgent.id}/channels`);
+    if(!channels.length){ el.style.display='none'; return; }
+    el.style.display='';
+    $('#d-agent-channels').innerHTML=`
+      <table class="ch-table">
+        <thead><tr><th>Canal</th><th>Type</th><th>Alertes</th><th>Questions</th></tr></thead>
+        <tbody>${channels.map(ch=>`
+          <tr>
+            <td>${esc(ch.name)}</td>
+            <td><span class="chip">${ch.type==='email'?'📧 email':'✈️ telegram'}</span></td>
+            <td style="text-align:center"><input type="checkbox" ${ch.use_notifs?'checked':''} onchange="setAgentChannel(${ch.id},this.checked,null)"></td>
+            <td style="text-align:center">${ch.type==='telegram'
+              ?`<input type="checkbox" ${ch.use_questions?'checked':''} onchange="setAgentChannel(${ch.id},null,this.checked)">`
+              :'<span style="color:var(--muted)">—</span>'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">Les alertes email sont one-way. Questions répondables uniquement via Telegram.</div>`;
+  }catch(e){ el.style.display='none'; }
+}
+
+async function setAgentChannel(channelId, useNotifs, useQuestions){
+  if(!selectedAgent) return;
+  try{
+    const channels=await api(`/api/agents/${selectedAgent.id}/channels`);
+    const ch=channels.find(c=>c.id===channelId);
+    if(!ch) return;
+    await api(`/api/agents/${selectedAgent.id}/channels`,{method:'PUT',body:JSON.stringify([{
+      channel_id:channelId,
+      use_notifs: useNotifs!==null?useNotifs:ch.use_notifs,
+      use_questions: useQuestions!==null?useQuestions:ch.use_questions
+    }])});
+  }catch(e){ alert(e.message); loadAgentChannels(); }
 }
 
 let detailArtifacts = [], detailArtPath = '';
@@ -1910,6 +2025,114 @@ async function archiveProject(id){ if(!confirm('Archiver cette mission ? Elle re
 async function deleteProject(id){
   if(!confirm('Supprimer définitivement cette mission ?\n\nSes tâches (y compris en attente) et les ressources qui leur sont liées seront supprimées.\nPour la conserver consultable, préfère « Archiver ».'))return;
   try{ await api(`/api/projects/${id}`,{method:'DELETE'}); loadProjects(); refresh(); }catch(e){alert(e.message);} }
+
+/* ---------- réglages : SMTP ---------- */
+async function loadSmtp(){
+  try{
+    const d = await api('/api/settings/smtp');
+    $('#smtp-host').value = d.host||'';
+    $('#smtp-port').value = d.port||587;
+    $('#smtp-user').value = d.user||'';
+    $('#smtp-from').value = d.from_addr||'';
+    $('#smtp-pwd').value = '';
+    $('#smtp-pwd').placeholder = d.password_set ? '(mot de passe enregistré)' : '(vide)';
+    $('#smtp-result').textContent='';
+  }catch(e){}
+}
+async function saveSmtp(){
+  const body={host:$('#smtp-host').value.trim(),port:+$('#smtp-port').value||587,
+               user:$('#smtp-user').value.trim(),password:$('#smtp-pwd').value,
+               from_addr:$('#smtp-from').value.trim()};
+  try{ await api('/api/settings/smtp',{method:'PUT',body:JSON.stringify(body)});
+    $('#smtp-result').textContent='✅ Enregistré.'; loadSmtp(); }
+  catch(e){ $('#smtp-result').textContent='❌ '+e.message; }
+}
+async function testSmtp(){
+  $('#smtp-result').textContent='Envoi en cours…';
+  try{ const r=await api('/api/settings/smtp/test',{method:'POST',body:'{}'});
+    $('#smtp-result').textContent=r.result; }
+  catch(e){ $('#smtp-result').textContent='❌ '+e.message; }
+}
+
+/* ---------- réglages : canaux ---------- */
+let channelsList=[], _editChannelId=null;
+
+async function loadChannels(){
+  channelsList = await api('/api/channels').catch(()=>[]);
+  renderChannels();
+}
+function renderChannels(){
+  const el=$('#channels-list');
+  if(!channelsList.length){ el.innerHTML='<div class="empty">Aucun canal configuré.</div>'; return; }
+  el.innerHTML=channelsList.map(ch=>`
+    <div class="res-row" style="display:flex;align-items:center;gap:10px">
+      <div class="grow">
+        <div style="font-weight:600">${esc(ch.name)}
+          <span class="chip">${ch.type==='email'?'📧 email':'✈️ telegram'}</span>
+          ${!ch.enabled?'<span class="chip" style="background:#fef3cd;color:#856404">désactivé</span>':''}
+        </div>
+        <div style="font-size:12px;color:var(--muted)">${ch.type==='email'?esc(ch.config.to||''):'Chat ID: '+esc(ch.config.chat_id||'')}</div>
+      </div>
+      <button class="small secondary" onclick="testChannel(${ch.id})">Tester</button>
+      <button class="small secondary" onclick="openChannelDlg(channelsList.find(c=>c.id===${ch.id}))">✎</button>
+      <button class="small danger" onclick="deleteChannel(${ch.id})">×</button>
+    </div>`).join('');
+}
+function openChannelDlg(ch){
+  _editChannelId = ch ? ch.id : null;
+  $('#dlgChannel-title').textContent = ch ? 'Modifier le canal' : 'Ajouter un canal';
+  $('#ch-name').value = ch ? ch.name : '';
+  $('#ch-type').value = ch ? ch.type : 'email';
+  $('#ch-type').disabled = !!ch;
+  $('#ch-email-to').value = ch?.config?.to||'';
+  $('#ch-tg-token').value = '';
+  $('#ch-tg-chatid').value = ch?.config?.chat_id||'';
+  $('#ch-assign-wrap').style.display = ch ? 'none' : '';
+  $('#ch-assign-notifs').checked = false;
+  $('#ch-assign-questions').checked = false;
+  $('#ch-test-btn').disabled = !ch;
+  $('#ch-test-result').textContent = '';
+  channelTypeChange();
+  dlgChannel.showModal();
+}
+function channelTypeChange(){
+  const t=$('#ch-type').value;
+  $('#ch-email-fields').style.display = t==='email'?'':'none';
+  $('#ch-tg-fields').style.display = t==='telegram'?'':'none';
+  $('#ch-assign-q-wrap').style.display = t==='telegram'?'':'none';
+}
+async function saveChannel(){
+  const name=$('#ch-name').value.trim(); if(!name) return;
+  const type=$('#ch-type').value;
+  const cfg={};
+  if(type==='email') cfg.to=$('#ch-email-to').value.trim();
+  else{ const tok=$('#ch-tg-token').value.trim(); if(tok) cfg.bot_token=tok; cfg.chat_id=$('#ch-tg-chatid').value.trim(); }
+  try{
+    if(_editChannelId){
+      await api(`/api/channels/${_editChannelId}`,{method:'PATCH',body:JSON.stringify({name,config:cfg})});
+    } else {
+      await api('/api/channels',{method:'POST',body:JSON.stringify({
+        name,type,config:cfg,enabled:true,
+        assign_notifs:$('#ch-assign-notifs').checked,
+        assign_questions:$('#ch-assign-questions').checked})});
+    }
+    dlgChannel.close(); loadChannels();
+  }catch(e){alert(e.message);}
+}
+async function testChannel(cid){
+  try{ const r=await api(`/api/channels/${cid}/test`,{method:'POST',body:'{}'});
+    alert(r.result); }catch(e){alert(e.message);}
+}
+async function testChannelFromDlg(){
+  if(!_editChannelId){ $('#ch-test-result').textContent='Enregistrez d\'abord le canal pour le tester.'; return; }
+  $('#ch-test-result').textContent='Test en cours…';
+  try{ const r=await api(`/api/channels/${_editChannelId}/test`,{method:'POST',body:'{}'});
+    $('#ch-test-result').textContent=r.result; }catch(e){ $('#ch-test-result').textContent='❌ '+e.message; }
+}
+async function deleteChannel(cid){
+  if(!confirm('Supprimer ce canal ? Les abonnements des agents seront aussi supprimés.')) return;
+  try{ await api(`/api/channels/${cid}`,{method:'DELETE'}); loadChannels(); }catch(e){alert(e.message);}
+}
 
 /* ---------- réglages : providers ---------- */
 async function loadProviders(silent){

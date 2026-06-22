@@ -2,7 +2,7 @@
 import asyncio
 import logging
 
-from . import config, db, runtime
+from . import config, db, notify, runtime
 
 log = logging.getLogger("swarm.scheduler")
 
@@ -51,6 +51,8 @@ async def _tick() -> None:
         sid = db.create_session(aid, "Reprendre le travail à la lumière de la ou des réponses de l'utilisateur "
                                      "à tes questions (voir ton contexte initial).", None)
         log.info("Session #%s créée pour traiter les réponses utilisateur de %s", sid, agent["name"])
+
+    await notify.dispatch_pending()
 
 
 async def scheduler_loop() -> None:
