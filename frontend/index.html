@@ -384,7 +384,6 @@
 
 <header>
   <h1><svg class="logo-hex" width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><polygon points="12,2 21.5,7 21.5,17 12,22 2.5,17 2.5,7" fill="#2f6fed"/><text x="12" y="16.5" text-anchor="middle" fill="#fff" font-size="9.5" font-weight="700" font-family="Segoe UI,system-ui,sans-serif">LE</text></svg> <span class="htxt">L'<span>Essaim</span></span></h1>
-  <button class="profile-chip" onclick="openProfileOverlay()" id="profile-chip" title="Changer de profil">👤 <span id="profile-chip-name">…</span></button>
   <nav>
     <button data-view="dash" class="active" onclick="showView('dash')">Tableau de bord</button>
     <button data-view="super" onclick="showView('super')">Supervision</button>
@@ -392,6 +391,7 @@
     <button data-view="explorer" onclick="showView('explorer')">Explorateur</button>
     <button data-view="settings" onclick="showView('settings')">Réglages</button>
   </nav>
+  <button class="profile-chip" onclick="openProfileOverlay()" id="profile-chip" title="Changer de profil">👤 <span id="profile-chip-name">…</span></button>
   <div class="bellwrap">
     <button class="bellbtn" onclick="toggleNotifs(event)" title="Notifications">🔔<span class="bdg" id="bell-badge"></span></button>
   </div>
