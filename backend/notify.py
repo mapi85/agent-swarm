@@ -121,7 +121,7 @@ async def send_test(channel: dict) -> str:
         if not token or not chat_id:
             return "Token bot ou Chat ID manquant."
         mid = await _send_telegram(token, chat_id,
-                                   "✅ *Test — L\\'Essaim*\nLes notifications Telegram fonctionnent\\.")
+                                   "✅ *Test — L'Essaim*\nLes notifications Telegram fonctionnent.")
         return f"Message Telegram envoyé (id: {mid})." if mid is not None else "Échec d'envoi Telegram (vérifiez token et chat_id)."
     return "Type de canal inconnu."
 
