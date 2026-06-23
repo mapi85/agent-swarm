@@ -467,7 +467,7 @@
     <div class="kpis" id="dash-tok-summary"></div>
     <div class="panel" style="margin-bottom:18px">
       <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 14px 0;flex-wrap:wrap;gap:8px">
-        <h3 style="margin:0;padding:0;border:0;text-transform:uppercase;font-size:11.5px;letter-spacing:.06em;color:var(--muted);font-weight:650">Consommation par jour</h3>
+        <h3 id="dash-tok-period-title" style="margin:0;padding:0;border:0;text-transform:uppercase;font-size:11.5px;letter-spacing:.06em;color:var(--muted);font-weight:650">Consommation par jour</h3>
         <div class="period-filter" style="padding:0">
           <button class="period-btn active" onclick="setDashPeriod(null,this)">Tout</button>
           <button class="period-btn" onclick="setDashPeriod('7d',this)">7 jours</button>
@@ -1067,19 +1067,38 @@ async function loadDash(){
       <div class="kpi"><div class="kv">${fmtTok(sm.avg_session||0)}</div><div class="kl">moyenne / session</div></div>
       <div class="kpi"><div class="kv">${fmtTok(sm.max_session||0)}</div><div class="kl">session la plus lourde</div></div>`;
 
-    // Graphe par jour avec valeurs visibles
-    const days = stats.by_day || [];
-    if (days.length){
-      const maxd = Math.max(...days.map(d=>d.input_tokens+d.output_tokens), 1);
-      $('#dash-tok-day').innerHTML = `<div class="bars">` + days.map(d=>{
-        const tot = d.input_tokens + d.output_tokens;
-        const h = Math.round(100*tot/maxd);
-        return `<div class="bar" title="${d.day} · ${fmtTok(tot)} tok · ${d.sessions} session(s)">
-          <div class="bar-val">${fmtTok(tot)}</div>
-          <div class="bar-fill" style="height:${Math.max(h,2)}%"></div>
-          <div class="bar-lbl">${d.day.slice(5)}</div></div>`;
-      }).join('') + `</div>`;
-    } else $('#dash-tok-day').innerHTML = '<div class="empty">Aucune session datée.</div>';
+    // Graphe tokens : par heure (24h) ou par jour
+    const title24 = $('#dash-tok-period-title');
+    if (dashPeriod === '24h' && stats.by_hour) {
+      if (title24) title24.textContent = 'Consommation par heure (24 h)';
+      const hours = stats.by_hour || [];
+      if (hours.length) {
+        const maxh = Math.max(...hours.map(h=>h.input_tokens+h.output_tokens), 1);
+        $('#dash-tok-day').innerHTML = `<div class="bars">` + hours.map(h=>{
+          const tot = h.input_tokens + h.output_tokens;
+          const pct = Math.round(100*tot/maxh);
+          const lbl = h.hour.slice(11) + 'h';
+          return `<div class="bar" title="${h.hour.replace('T',' ')}h · ${fmtTok(tot)} tok · ${h.sessions} session(s)">
+            <div class="bar-val">${fmtTok(tot)}</div>
+            <div class="bar-fill" style="height:${Math.max(pct,2)}%"></div>
+            <div class="bar-lbl">${lbl}</div></div>`;
+        }).join('') + `</div>`;
+      } else $('#dash-tok-day').innerHTML = '<div class="empty">Aucune session dans les 24 dernières heures.</div>';
+    } else {
+      if (title24) title24.textContent = dashPeriod === '7d' ? 'Consommation par jour (7 j)' : 'Consommation par jour';
+      const days = stats.by_day || [];
+      if (days.length){
+        const maxd = Math.max(...days.map(d=>d.input_tokens+d.output_tokens), 1);
+        $('#dash-tok-day').innerHTML = `<div class="bars">` + days.map(d=>{
+          const tot = d.input_tokens + d.output_tokens;
+          const h = Math.round(100*tot/maxd);
+          return `<div class="bar" title="${d.day} · ${fmtTok(tot)} tok · ${d.sessions} session(s)">
+            <div class="bar-val">${fmtTok(tot)}</div>
+            <div class="bar-fill" style="height:${Math.max(h,2)}%"></div>
+            <div class="bar-lbl">${d.day.slice(5)}</div></div>`;
+        }).join('') + `</div>`;
+      } else $('#dash-tok-day').innerHTML = '<div class="empty">Aucune session datée.</div>';
+    }
 
     const tokTable = (rows, label, cols) => rows.length ? `
       <table class="stats-t"><tr><th>${label}</th><th class="num">in</th><th class="num">out</th>${cols?'<th class="num">sessions</th>':''}</tr>

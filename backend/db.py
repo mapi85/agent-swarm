@@ -681,6 +681,19 @@ def tokens_by_day(days: int = 30, period: str | None = None, profile_id: int | N
         f"GROUP BY day ORDER BY day DESC LIMIT ?", params_day)
 
 
+def tokens_by_hour(profile_id: int | None = None) -> list[dict]:
+    """Consommation agrégée par heure sur les 24 dernières heures."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(timespec="seconds")
+    prof_filter = ("AND agent_id IN (SELECT id FROM agents WHERE profile_id = ? OR profile_id IS NULL)"
+                   if profile_id else "")
+    params = (cutoff, profile_id) if profile_id else (cutoff,)
+    return query(
+        f"SELECT substr(started_at, 1, 13) AS hour, SUM(input_tokens) AS input_tokens, "
+        f"SUM(output_tokens) AS output_tokens, COUNT(*) AS sessions "
+        f"FROM sessions WHERE started_at >= ? AND input_tokens + output_tokens > 0 {prof_filter} "
+        f"GROUP BY hour ORDER BY hour ASC", params)
+
+
 def tokens_by_category(period: str | None = None, profile_id: int | None = None) -> list[dict]:
     """Consommation agrégée par thème d'agent."""
     since = _since_cutoff(period)

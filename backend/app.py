@@ -841,6 +841,7 @@ def stats_tokens(days: int = 30, period: str | None = None, profile_id: int | No
         "by_project": db.tokens_by_project(period, profile_id),
         "by_category": db.tokens_by_category(period, profile_id),
         "by_day": list(reversed(db.tokens_by_day(days, period, profile_id))),
+        **({"by_hour": db.tokens_by_hour(profile_id)} if period == "24h" else {}),
     }
 
 
