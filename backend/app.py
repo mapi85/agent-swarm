@@ -1127,5 +1127,33 @@ async def telegram_webhook(cid: int, request: Request):
     return {"ok": True}
 
 
+# ---------------------------------------------------------------------------
+# Timeline
+# ---------------------------------------------------------------------------
+
+@app.get("/api/timeline")
+def timeline_get(profile_id: int | None = None):
+    from datetime import datetime, timedelta, timezone
+    now_ts = datetime.now(timezone.utc)
+    cutoff = (now_ts - timedelta(hours=12)).isoformat(timespec="seconds")
+    fwd    = (now_ts + timedelta(hours=6)).isoformat(timespec="seconds")
+    pf = "AND (a.profile_id = ? OR a.profile_id IS NULL)" if profile_id else ""
+    p_past = tuple(v for v in [cutoff, profile_id] if v is not None)
+    p_plan = tuple(v for v in [fwd, profile_id] if v is not None)
+    recent = db.query(
+        f"SELECT s.id, s.agent_id, a.name AS agent_name, s.status, "
+        f"s.started_at, s.ended_at, s.objective "
+        f"FROM sessions s JOIN agents a ON a.id = s.agent_id "
+        f"WHERE s.status IN ('completed','failed','interrupted','running') "
+        f"AND s.started_at >= ? {pf} ORDER BY s.started_at ASC LIMIT 80", p_past)
+    planned = db.query(
+        f"SELECT s.id, s.agent_id, a.name AS agent_name, s.status, "
+        f"s.scheduled_at AS started_at, NULL AS ended_at, s.objective "
+        f"FROM sessions s JOIN agents a ON a.id = s.agent_id "
+        f"WHERE s.status = 'planned' AND s.scheduled_at <= ? {pf} "
+        f"ORDER BY s.scheduled_at ASC LIMIT 20", p_plan)
+    return {"sessions": recent + planned}
+
+
 # Front statique — monté en dernier
 app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")

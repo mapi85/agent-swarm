@@ -83,8 +83,31 @@
   .state-pill.scheduled{color:var(--accent);border-color:#cfe0fb;background:var(--accent-soft)}
   .state-pill.idle{color:var(--muted)}
   /* ===== Supervision ===== */
-  #view-super{grid-template-columns:330px 1fr;height:calc(100vh - 52px)}
+  #view-super{grid-template-columns:330px 1fr;grid-template-rows:auto 1fr;height:calc(100vh - 52px)}
   #view-super.active{display:grid}
+  /* Timeline */
+  #super-timeline{grid-column:1/-1;background:var(--panel);border-bottom:1px solid var(--border);padding:8px 14px 10px}
+  .tl-title{font-size:11.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:650;margin-bottom:4px}
+  .tl-axis{position:relative;height:18px;margin-bottom:2px;font-size:11px;color:var(--muted)}
+  .tl-tick{position:absolute;transform:translateX(-50%);white-space:nowrap}
+  .tl-tick.now-lbl{color:var(--red);font-weight:700}
+  .tl-rows{max-height:152px;overflow-y:auto}
+  .tl-row{display:flex;align-items:center;gap:6px;height:26px}
+  .tl-agent{width:110px;min-width:110px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;color:var(--text);padding-right:6px;flex:none;cursor:default}
+  .tl-track{flex:1;position:relative;height:18px;background:var(--panel2);border-radius:3px;overflow:hidden}
+  .tl-now{position:absolute;top:0;bottom:0;width:2px;background:var(--red);opacity:.65;z-index:2;pointer-events:none}
+  .tl-block{position:absolute;top:2px;bottom:2px;border-radius:2px;min-width:3px;cursor:help;transition:opacity .15s}
+  .tl-block:hover{opacity:1!important;z-index:3}
+  .tl-block.completed{background:#22c55e;opacity:.72}
+  .tl-block.running{background:var(--accent);opacity:.9}
+  .tl-block.failed{background:var(--red);opacity:.72}
+  .tl-block.interrupted{background:var(--orange);opacity:.72}
+  .tl-block.planned{background:#a5b4fc;border:1px dashed #818cf8;opacity:.85}
+  @media(max-width:900px){
+    #super-timeline{padding:6px 10px 8px}
+    .tl-agent{width:76px;min-width:76px;font-size:11px}
+    .tl-tick{font-size:10px}
+  }
   #agents-col{border-right:1px solid var(--border);overflow-y:auto;padding:14px;background:var(--panel)}
   #agents-col h2,.section-h{font-size:11.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:6px 0 10px;font-weight:650}
   details.cat{margin-bottom:10px}
@@ -463,6 +486,7 @@
 
 <!-- ============ SUPERVISION ============ -->
 <div id="view-super" class="view">
+  <div id="super-timeline"><div class="tl-title">⏱ Timeline</div></div>
   <div id="agents-col">
     <button class="full" onclick="openAgentDlg(null)">+ Nouvel agent</button>
     <input type="search" id="ag-search" placeholder="Rechercher un agent…" oninput="renderAgentList()" style="margin-top:10px">
@@ -928,6 +952,7 @@ function showView(v){
   if (v==='missions') loadProjects();
   if (v==='explorer'){ populateSelects(); loadArtifacts(); }
   if (v==='settings'){ loadSmtp(); loadChannels(); loadProviders(); }
+  if (v==='super') loadTimeline();
 }
 function switchExplorerTab(idx){
   document.querySelectorAll('#view-explorer .tab-btn').forEach((b,i)=>b.classList.toggle('active',i===idx));
@@ -948,6 +973,7 @@ async function refresh() {
     else badge.style.display='none';
     renderAgentList();
     if (curView==='dash') loadDash();
+    if (curView==='super'){ _tlTick=(_tlTick+1)%5; if(_tlTick===0) loadTimeline(); }
     if (curView==='explorer'){ populateSelects(); loadArtifacts(); if (resources.length) loadResources(); }
     if (selectedAgent) {
       const fresh = agents.find(a => a.id === selectedAgent.id);
@@ -982,7 +1008,7 @@ async function loadDash(){
       <div class="kpi ${ov.tasks_pending?'warn':''}"><div class="kv">${ov.tasks_pending}</div><div class="kl">tâches en attente</div></div>
       <div class="kpi click" onclick="showView('missions')"><div class="kv">${ov.projects_active||0}</div><div class="kl">missions actives</div></div>
       <div class="kpi click ${ov.notifications_open?'alert':''}" onclick="toggleNotifs(event)"><div class="kv">${ov.notifications_open}</div><div class="kl">notifications à traiter</div></div>
-      <div class="kpi"><div class="kv">${fmtTok(h24tok||0)}</div><div class="kl">tokens 24 h (in+out)</div></div>`;
+      <div class="kpi"><div class="kv">${fmtTok(Math.round((h24tok||0)/24))}</div><div class="kl">tokens/h (moy. 24 h)</div></div>`;
 
     // Questions en attente — filtrées par profil (seuls les agents du profil actif)
     const agentIds = new Set(agents.map(a=>a.id));
@@ -1071,6 +1097,76 @@ async function loadDash(){
   finally { dashLoading = false; }
 }
 function gotoAgent(id){ showView('super'); selectAgent(id); }
+
+/* ---------- timeline supervision ---------- */
+let _tlTick = 0;
+
+async function loadTimeline(){
+  const el = $('#super-timeline'); if (!el) return;
+  const pqs = profileQs();
+  try {
+    const data = await api('/api/timeline' + (pqs ? '?' + pqs : ''));
+    renderTimeline(el, data);
+  } catch(e) {}
+}
+
+function renderTimeline(el, data){
+  const sessions = data.sessions || [];
+  const now = Date.now();
+  const WIN_PAST = 12 * 3600000;
+  const WIN_FWD  = 6  * 3600000;
+  const TL_START = now - WIN_PAST;
+  const TL_SPAN  = WIN_PAST + WIN_FWD;
+
+  const toX = ts => Math.max(0, Math.min(100, (ts - TL_START) / TL_SPAN * 100));
+  const toW = (s, e) => Math.max(0.4, Math.min(100 - toX(s), (e - s) / TL_SPAN * 100));
+
+  const byAgent = new Map();
+  for (const s of sessions) {
+    const st = s.started_at ? new Date(s.started_at).getTime() : null;
+    if (!st) continue;
+    const et = s.ended_at ? new Date(s.ended_at).getTime()
+             : s.status === 'running' ? now
+             : st + 2700000;   // planifié : bloc de 45 min indicatif
+    if (et < TL_START || st > now + WIN_FWD) continue;
+    if (!byAgent.has(s.agent_name)) byAgent.set(s.agent_name, []);
+    byAgent.get(s.agent_name).push({...s, _st: st, _et: et});
+  }
+
+  const nowX = toX(now).toFixed(2);
+  const ticks = [-12,-9,-6,-3,0,3,6].map(h => {
+    const x = toX(now + h * 3600000);
+    if (x < 0 || x > 100) return '';
+    const lbl = h === 0 ? 'Maintenant' : (h > 0 ? `+${h}h` : `${h}h`);
+    return `<span class="tl-tick${h===0?' now-lbl':''}" style="left:${x.toFixed(1)}%">${lbl}</span>`;
+  }).join('');
+
+  if (!byAgent.size) {
+    el.innerHTML = `<div class="tl-title">⏱ Timeline <span style="font-weight:400;font-size:11px">(−12h / +6h)</span></div>
+      <div style="font-size:12px;color:var(--muted);padding:6px 0">Aucune exécution récente ou planifiée.</div>`;
+    return;
+  }
+
+  const rows = [...byAgent.entries()].map(([name, ss]) => {
+    const blocks = ss.map(s => {
+      const x = toX(s._st);
+      const w = toW(s._st, s._et);
+      const tip = `${s.agent_name} · ${s.status}\n${(s.objective||'').slice(0,80)}`;
+      return `<div class="tl-block ${s.status}" style="left:${x.toFixed(2)}%;width:${w.toFixed(2)}%" title="${esc(tip)}"></div>`;
+    }).join('');
+    return `<div class="tl-row">
+      <div class="tl-agent" title="${esc(name)}">${esc(name)}</div>
+      <div class="tl-track">
+        <div class="tl-now" style="left:${nowX}%"></div>${blocks}
+      </div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="tl-title">⏱ Timeline <span style="font-weight:400;font-size:11px;color:var(--muted)">(−12h / +6h)</span></div>
+    <div class="tl-axis" style="margin-left:116px">${ticks}</div>
+    <div class="tl-rows">${rows}</div>`;
+}
 
 /* ---------- supervision ---------- */
 const AGENT_ACTIVE = new Set(['running','awaiting','scheduled']);
