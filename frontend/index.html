@@ -83,10 +83,10 @@
   .state-pill.scheduled{color:var(--accent);border-color:#cfe0fb;background:var(--accent-soft)}
   .state-pill.idle{color:var(--muted)}
   /* ===== Supervision ===== */
-  #view-super{grid-template-columns:330px 1fr;grid-template-rows:auto 1fr;height:calc(100vh - 52px)}
+  #view-super{grid-template-columns:330px 1fr;height:calc(100vh - 52px)}
   #view-super.active{display:grid}
-  /* Timeline */
-  #super-timeline{grid-column:1/-1;background:var(--panel);border-bottom:1px solid var(--border);padding:8px 14px 10px}
+  /* Timeline (tableau de bord) */
+  #dash-timeline{background:var(--panel);border:1px solid var(--border);border-radius:9px;box-shadow:var(--shadow);padding:10px 14px 12px;margin-bottom:16px}
   .tl-title{font-size:11.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:650;margin-bottom:4px}
   .tl-axis{position:relative;height:18px;margin-bottom:2px;font-size:11px;color:var(--muted)}
   .tl-tick{position:absolute;transform:translateX(-50%);white-space:nowrap}
@@ -104,7 +104,7 @@
   .tl-block.interrupted{background:var(--orange);opacity:.72}
   .tl-block.planned{background:#a5b4fc;border:1px dashed #818cf8;opacity:.85}
   @media(max-width:900px){
-    #super-timeline{padding:6px 10px 8px}
+    #dash-timeline{padding:6px 10px 8px}
     .tl-agent{width:76px;min-width:76px;font-size:11px}
     .tl-tick{font-size:10px}
   }
@@ -455,6 +455,7 @@
   <div class="page">
     <h2>Tableau de bord</h2>
     <div class="sub">Vue d'ensemble de l'essaim : indicateurs, état des agents et consommation de tokens.</div>
+    <div id="dash-timeline"><div class="tl-title">⏱ Timeline</div></div>
     <div class="kpis" id="dash-kpis"></div>
     <details class="tile" id="dash-questions" style="margin-bottom:16px">
       <summary><b>❓ Questions en attente</b> <span id="dash-q-count" style="color:var(--muted);font-size:12px;margin-left:6px"></span></summary>
@@ -486,7 +487,6 @@
 
 <!-- ============ SUPERVISION ============ -->
 <div id="view-super" class="view">
-  <div id="super-timeline"><div class="tl-title">⏱ Timeline</div></div>
   <div id="agents-col">
     <button class="full" onclick="openAgentDlg(null)">+ Nouvel agent</button>
     <input type="search" id="ag-search" placeholder="Rechercher un agent…" oninput="renderAgentList()" style="margin-top:10px">
@@ -948,11 +948,10 @@ function showView(v){
   curView = v;
   document.querySelectorAll('.view').forEach(e=>e.classList.toggle('active', e.id==='view-'+v));
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active', b.dataset.view===v));
-  if (v==='dash') loadDash();
+  if (v==='dash'){ loadDash(); loadTimeline(); }
   if (v==='missions') loadProjects();
   if (v==='explorer'){ populateSelects(); loadArtifacts(); }
   if (v==='settings'){ loadSmtp(); loadChannels(); loadProviders(); }
-  if (v==='super') loadTimeline();
 }
 function switchExplorerTab(idx){
   document.querySelectorAll('#view-explorer .tab-btn').forEach((b,i)=>b.classList.toggle('active',i===idx));
@@ -972,8 +971,7 @@ async function refresh() {
     if (ov.notifications_open>0){ badge.style.display='block'; badge.textContent=ov.notifications_open; }
     else badge.style.display='none';
     renderAgentList();
-    if (curView==='dash') loadDash();
-    if (curView==='super'){ _tlTick=(_tlTick+1)%5; if(_tlTick===0) loadTimeline(); }
+    if (curView==='dash'){ loadDash(); _tlTick=(_tlTick+1)%5; if(_tlTick===0) loadTimeline(); }
     if (curView==='explorer'){ populateSelects(); loadArtifacts(); if (resources.length) loadResources(); }
     if (selectedAgent) {
       const fresh = agents.find(a => a.id === selectedAgent.id);
@@ -1098,11 +1096,11 @@ async function loadDash(){
 }
 function gotoAgent(id){ showView('super'); selectAgent(id); }
 
-/* ---------- timeline supervision ---------- */
+/* ---------- timeline tableau de bord ---------- */
 let _tlTick = 0;
 
 async function loadTimeline(){
-  const el = $('#super-timeline'); if (!el) return;
+  const el = $('#dash-timeline'); if (!el) return;
   const pqs = profileQs();
   try {
     const data = await api('/api/timeline' + (pqs ? '?' + pqs : ''));
