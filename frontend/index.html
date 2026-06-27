@@ -1198,7 +1198,7 @@ function renderTimeline(el, data){
         <div class="tl-agent tl-subagent" title="${esc(name)}">${esc(name)}</div>
         <div class="tl-track"><div class="tl-now" style="left:${nowX}%"></div>${ss.map(mkBlock).join('')}</div>
       </div>`).join('');
-    return `<div class="tl-row tl-cat-row" onclick="tlToggleCat(${JSON.stringify(cat)},'${id}')">
+    return `<div class="tl-row tl-cat-row" onclick="tlToggleCat(${esc(JSON.stringify(cat))},'${id}')">
         <div class="tl-agent tl-cat-label"><span class="tl-arrow">${open?'▾':'▸'}</span>${esc(cat)}</div>
         <div class="tl-track"><div class="tl-now" style="left:${nowX}%"></div>${catBlocks}</div>
       </div>
