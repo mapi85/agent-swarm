@@ -1142,13 +1142,13 @@ def timeline_get(profile_id: int | None = None):
     p_past = tuple(v for v in [cutoff, profile_id] if v is not None)
     p_plan = tuple(v for v in [fwd, profile_id] if v is not None)
     recent = db.query(
-        f"SELECT s.id, s.agent_id, a.name AS agent_name, s.status, "
+        f"SELECT s.id, s.agent_id, a.name AS agent_name, COALESCE(a.category,'') AS agent_category, s.status, "
         f"s.started_at, s.ended_at, s.objective "
         f"FROM sessions s JOIN agents a ON a.id = s.agent_id "
         f"WHERE s.status IN ('completed','failed','interrupted','running') "
         f"AND s.started_at >= ? {pf} ORDER BY s.started_at ASC LIMIT 80", p_past)
     planned = db.query(
-        f"SELECT s.id, s.agent_id, a.name AS agent_name, s.status, "
+        f"SELECT s.id, s.agent_id, a.name AS agent_name, COALESCE(a.category,'') AS agent_category, s.status, "
         f"s.scheduled_at AS started_at, NULL AS ended_at, s.objective "
         f"FROM sessions s JOIN agents a ON a.id = s.agent_id "
         f"WHERE s.status = 'planned' AND s.scheduled_at <= ? {pf} "

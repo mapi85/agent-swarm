@@ -103,10 +103,16 @@
   .tl-block.failed{background:var(--red);opacity:.72}
   .tl-block.interrupted{background:var(--orange);opacity:.72}
   .tl-block.planned{background:#a5b4fc;border:1px dashed #818cf8;opacity:.85}
+  .tl-cat-row{background:var(--panel2);border-radius:3px;cursor:pointer}
+  .tl-cat-row:hover .tl-track{outline:1px solid var(--accent);outline-offset:-1px}
+  .tl-cat-label{font-weight:650;display:flex;align-items:center;gap:4px}
+  .tl-arrow{font-size:10px;color:var(--muted);flex:none}
+  .tl-subagent{font-weight:400;padding-left:18px;color:var(--muted)}
   @media(max-width:900px){
     #dash-timeline{padding:6px 10px 8px}
     .tl-agent{width:76px;min-width:76px;font-size:11px}
     .tl-tick{font-size:10px}
+    .tl-subagent{padding-left:10px}
   }
   #agents-col{border-right:1px solid var(--border);overflow-y:auto;padding:14px;background:var(--panel)}
   #agents-col h2,.section-h{font-size:11.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:6px 0 10px;font-weight:650}
@@ -741,7 +747,7 @@
   </select>
   <div id="rf-agent-wrap" style="display:none"><label>Agent</label><select id="rf-agent"></select></div>
   <div id="rf-task-wrap" style="display:none"><label>ID de tâche</label><input id="rf-task" type="number"></div>
-  <div id="rf-file-wrap"><label>Fichier</label><input id="rf-file" type="file"></div>
+  <div id="rf-file-wrap"><label>Fichier(s)</label><input id="rf-file" type="file" multiple></div>
   <div id="rf-name-wrap" style="display:none"><label>Nom</label><input id="rf-name"></div>
   <div id="rf-content-wrap" style="display:none"><label id="rf-content-label">Contenu</label><textarea id="rf-content" rows="4"></textarea></div>
   <label>Description (optionnelle)</label><input id="rf-desc">
@@ -1117,6 +1123,7 @@ function gotoAgent(id){ showView('super'); selectAgent(id); }
 
 /* ---------- timeline tableau de bord ---------- */
 let _tlTick = 0;
+const _tlExpanded = new Set();
 
 async function loadTimeline(){
   const el = $('#dash-timeline'); if (!el) return;
@@ -1125,6 +1132,14 @@ async function loadTimeline(){
     const data = await api('/api/timeline' + (pqs ? '?' + pqs : ''));
     renderTimeline(el, data);
   } catch(e) {}
+}
+
+function tlToggleCat(cat, id){
+  if (_tlExpanded.has(cat)) _tlExpanded.delete(cat); else _tlExpanded.add(cat);
+  const sub = document.getElementById(id);
+  const arrow = sub && sub.previousElementSibling ? sub.previousElementSibling.querySelector('.tl-arrow') : null;
+  if (sub) sub.style.display = _tlExpanded.has(cat) ? 'block' : 'none';
+  if (arrow) arrow.textContent = _tlExpanded.has(cat) ? '▾' : '▸';
 }
 
 function renderTimeline(el, data){
@@ -1138,16 +1153,21 @@ function renderTimeline(el, data){
   const toX = ts => Math.max(0, Math.min(100, (ts - TL_START) / TL_SPAN * 100));
   const toW = (s, e) => Math.max(0.4, Math.min(100 - toX(s), (e - s) / TL_SPAN * 100));
 
-  const byAgent = new Map();
+  const byCategory = new Map();
   for (const s of sessions) {
     const st = s.started_at ? new Date(s.started_at).getTime() : null;
     if (!st) continue;
     const et = s.ended_at ? new Date(s.ended_at).getTime()
              : s.status === 'running' ? now
-             : st + 2700000;   // planifié : bloc de 45 min indicatif
+             : st + 2700000;
     if (et < TL_START || st > now + WIN_FWD) continue;
-    if (!byAgent.has(s.agent_name)) byAgent.set(s.agent_name, []);
-    byAgent.get(s.agent_name).push({...s, _st: st, _et: et});
+    const cat = s.agent_category || '(sans thème)';
+    if (!byCategory.has(cat)) byCategory.set(cat, { all: [], byAgent: new Map() });
+    const ce = byCategory.get(cat);
+    const ss = {...s, _st: st, _et: et};
+    ce.all.push(ss);
+    if (!ce.byAgent.has(s.agent_name)) ce.byAgent.set(s.agent_name, []);
+    ce.byAgent.get(s.agent_name).push(ss);
   }
 
   const nowX = toX(now).toFixed(2);
@@ -1158,25 +1178,31 @@ function renderTimeline(el, data){
     return `<span class="tl-tick${h===0?' now-lbl':''}" style="left:${x.toFixed(1)}%">${lbl}</span>`;
   }).join('');
 
-  if (!byAgent.size) {
+  if (!byCategory.size) {
     el.innerHTML = `<div class="tl-title">⏱ Timeline <span style="font-weight:400;font-size:11px">(−12h / +6h)</span></div>
       <div style="font-size:12px;color:var(--muted);padding:6px 0">Aucune exécution récente ou planifiée.</div>`;
     return;
   }
 
-  const rows = [...byAgent.entries()].map(([name, ss]) => {
-    const blocks = ss.map(s => {
-      const x = toX(s._st);
-      const w = toW(s._st, s._et);
-      const tip = `${s.agent_name} · ${s.status}\n${(s.objective||'').slice(0,80)}`;
-      return `<div class="tl-block ${s.status}" style="left:${x.toFixed(2)}%;width:${w.toFixed(2)}%" title="${esc(tip)}"></div>`;
-    }).join('');
-    return `<div class="tl-row">
-      <div class="tl-agent" title="${esc(name)}">${esc(name)}</div>
-      <div class="tl-track">
-        <div class="tl-now" style="left:${nowX}%"></div>${blocks}
+  const mkBlock = s => {
+    const tip = `${s.agent_name} · ${s.status}\n${(s.objective||'').slice(0,80)}`;
+    return `<div class="tl-block ${s.status}" style="left:${toX(s._st).toFixed(2)}%;width:${toW(s._st,s._et).toFixed(2)}%" title="${esc(tip)}"></div>`;
+  };
+
+  const rows = [...byCategory.entries()].map(([cat, ce], idx) => {
+    const id = `tlc${idx}`;
+    const open = _tlExpanded.has(cat);
+    const catBlocks = ce.all.map(mkBlock).join('');
+    const agentRows = [...ce.byAgent.entries()].map(([name, ss]) =>
+      `<div class="tl-row">
+        <div class="tl-agent tl-subagent" title="${esc(name)}">${esc(name)}</div>
+        <div class="tl-track"><div class="tl-now" style="left:${nowX}%"></div>${ss.map(mkBlock).join('')}</div>
+      </div>`).join('');
+    return `<div class="tl-row tl-cat-row" onclick="tlToggleCat(${JSON.stringify(cat)},'${id}')">
+        <div class="tl-agent tl-cat-label"><span class="tl-arrow">${open?'▾':'▸'}</span>${esc(cat)}</div>
+        <div class="tl-track"><div class="tl-now" style="left:${nowX}%"></div>${catBlocks}</div>
       </div>
-    </div>`;
+      <div id="${id}" style="display:${open?'block':'none'}">${agentRows}</div>`;
   }).join('');
 
   el.innerHTML = `
@@ -1455,12 +1481,18 @@ async function refreshLists() {
               <div class="rsub">${esc(r.description||'')}${r.size?' · '+fmtSize(r.size):''}</div></div>
             <button class="small danger" onclick="event.stopPropagation();delResource(${r.id})">×</button>
           </div>`).join('')}
-        <div style="padding:6px 0"><button class="small secondary" onclick="openResourceDlgForAgent()">+ Ajouter une ressource</button></div>
+        <div style="padding:6px 0;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="small secondary" onclick="openResourceDlgForAgent()">+ Ajouter</button>
+          <button class="small secondary" onclick="document.getElementById('agent-files-input').click()">📎 Fichiers multiples</button>
+        </div>
       </div>` : `
       <div class="section-h">Ressources liées à cet agent</div>
       <div style="margin-bottom:12px">
         <div class="empty" style="padding:10px 0;text-align:left">Aucune ressource liée à cet agent.</div>
-        <button class="small secondary" onclick="openResourceDlgForAgent()">+ Ajouter</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="small secondary" onclick="openResourceDlgForAgent()">+ Ajouter</button>
+          <button class="small secondary" onclick="document.getElementById('agent-files-input').click()">📎 Fichiers multiples</button>
+        </div>
       </div>`;
   }
 
@@ -1829,11 +1861,13 @@ async function createResource(){
     const agent_id = scope==='agent' ? +$('#rf-agent').value : null;
     const task_id = scope==='task' ? +$('#rf-task').value : null;
     if (type==='file'){
-      const f=$('#rf-file').files[0]; if(!f){alert('Choisis un fichier');return;}
-      const fd=new FormData(); fd.append('file',f); fd.append('scope',scope); fd.append('description',$('#rf-desc').value);
-      if(agent_id) fd.append('agent_id',agent_id); if(task_id) fd.append('task_id',task_id);
+      const files=Array.from($('#rf-file').files); if(!files.length){alert('Choisis un ou plusieurs fichiers');return;}
       const uploadH = authToken ? {'Authorization':'Bearer '+authToken} : {};
-      const r=await fetch('/api/resources/upload',{method:'POST',body:fd,headers:uploadH}); if(!r.ok)throw new Error((await r.json()).detail);
+      for(const f of files){
+        const fd=new FormData(); fd.append('file',f); fd.append('scope',scope); fd.append('description',$('#rf-desc').value);
+        if(agent_id) fd.append('agent_id',agent_id); if(task_id) fd.append('task_id',task_id);
+        const r=await fetch('/api/resources/upload',{method:'POST',body:fd,headers:uploadH}); if(!r.ok)throw new Error((await r.json()).detail);
+      }
     } else {
       await api('/api/resources/link',{method:'POST',body:JSON.stringify({
         scope, name:$('#rf-name').value.trim(), content:$('#rf-content').value, kind:type,
@@ -1845,6 +1879,21 @@ async function createResource(){
     if (wasLocked) { await refreshLists(); }
     else { loadResources(); }
   }catch(e){ alert(e.message); }
+}
+
+async function quickUploadFilesToAgent(input){
+  if(!selectedAgent){ input.value=''; return; }
+  const files=Array.from(input.files); input.value='';
+  if(!files.length) return;
+  const uploadH = authToken ? {'Authorization':'Bearer '+authToken} : {};
+  const errors=[];
+  for(const f of files){
+    const fd=new FormData(); fd.append('file',f); fd.append('scope','agent'); fd.append('agent_id',selectedAgent.id);
+    const r=await fetch('/api/resources/upload',{method:'POST',body:fd,headers:uploadH});
+    if(!r.ok) errors.push(f.name+' : '+((await r.json()).detail||'erreur'));
+  }
+  await refreshLists();
+  if(errors.length) alert('Erreurs :\n'+errors.join('\n'));
 }
 function _resetResourceDlg(){
   dlgResource.querySelector('h3').textContent = 'Ajouter une ressource';
@@ -2376,5 +2425,6 @@ initProfiles().then(()=>{
   setInterval(()=>{ if(appReady) refresh(); }, 3000);
 });
 </script>
+<input type="file" id="agent-files-input" multiple style="display:none" onchange="quickUploadFilesToAgent(this)">
 </body>
 </html>
