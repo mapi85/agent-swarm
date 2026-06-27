@@ -729,7 +729,7 @@ def get_notification(nid: int) -> dict | None:
 
 
 def list_notifications(status: str | None = None, agent_id: int | None = None,
-                       type_: str | None = None) -> list[dict]:
+                       type_: str | None = None, profile_id: int | None = None) -> list[dict]:
     clauses, params = [], []
     if status:
         clauses.append("n.status = ?"); params.append(status)
@@ -737,6 +737,8 @@ def list_notifications(status: str | None = None, agent_id: int | None = None,
         clauses.append("n.agent_id = ?"); params.append(agent_id)
     if type_:
         clauses.append("n.type = ?"); params.append(type_)
+    if profile_id is not None:
+        clauses.append("(a.profile_id = ? OR a.profile_id IS NULL)"); params.append(profile_id)
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     return query(f"SELECT n.*, a.name AS agent_name FROM notifications n "
                  f"JOIN agents a ON a.id = n.agent_id {where} ORDER BY n.id DESC LIMIT 200",
@@ -888,7 +890,7 @@ def list_projects(include_archived=False, profile_id=None) -> list[dict]:
     if not include_archived:
         clauses.append("status != 'archived'")
     if profile_id is not None:
-        clauses.append("profile_id = ?")
+        clauses.append("(profile_id = ? OR profile_id IS NULL)")
         params.append(profile_id)
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     return query(f"SELECT * FROM projects {where} ORDER BY id DESC", tuple(params))

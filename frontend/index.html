@@ -2052,7 +2052,9 @@ async function loadNotifs(){
   const ael = document.activeElement;
   if (ael && ['INPUT','TEXTAREA'].includes(ael.tagName) && $('#notifs-list').contains(ael)) return;
   const f=$('#n-filter').value;
-  const list = await api('/api/notifications'+(f?`?status=${f}`:''));
+  const pqs=profileQs();
+  const nqs=[f?`status=${f}`:'',pqs].filter(Boolean).join('&');
+  const list = await api('/api/notifications'+(nqs?`?${nqs}`:''));
   $('#notifs-list').innerHTML = list.map(n=>`
     <div class="notif ${n.type} ${n.status}">
       <div class="nhead"><span class="ntype">${n.type==='question'?'❓ Question':'🔔 Alerte'}</span>
@@ -2301,25 +2303,29 @@ async function loadProviders(silent){
   providersList = await api('/api/providers');
   if (silent) return;
   $('#providers-list').innerHTML = providersList.map(p=>`
-    <div class="prov-row">
-      <div class="grow">
-        <div class="pname">${esc(p.name)}
-          <span class="chip ${p.ptype}">${p.ptype==='anthropic'?'Anthropic-compatible':'OpenAI-compatible'}</span>
+    <details class="tile">
+      <summary>
+        <span style="flex:1;min-width:0">
+          <span class="pname">${esc(p.name)}</span>
+          <span class="chip ${p.ptype}" style="margin-left:6px">${p.ptype==='anthropic'?'Anthropic-compatible':'OpenAI-compatible'}</span>
           ${p.is_default?'<span class="chip default">défaut</span>':''}
-          ${p.ptype==='anthropic'&&p.native_features?'<span class="chip">natives</span>':''}</div>
+          ${p.ptype==='anthropic'&&p.native_features?'<span class="chip">natives</span>':''}
+        </span>
+        <span style="color:var(--muted);font-size:12px;white-space:nowrap">${p.agents_count} agent(s)</span>
+        <button class="small secondary" onclick='event.stopPropagation();openProviderDlg(${p.id})'>✎ Modifier</button>
+        ${p.is_default?'':`<button class="small secondary" onclick="event.stopPropagation();setDefaultProvider(${p.id})">Par défaut</button>`}
+        <button class="small danger" onclick="event.stopPropagation();delProvider(${p.id})">Supprimer</button>
+      </summary>
+      <div class="tile-body">
         <div class="psub">${esc(p.base_url||(p.ptype==='anthropic'?'API Anthropic officielle':'(URL non définie)'))}
-          · clé : ${p.api_key_set?'définie':(p.ptype==='anthropic'?'env ANTHROPIC_API_KEY':'⚠ absente')}
-          · ${p.agents_count} agent(s)</div>
-        <div class="psub">${(p.models&&p.models.length)
+          · clé : ${p.api_key_set?'définie':(p.ptype==='anthropic'?'env ANTHROPIC_API_KEY':'⚠ absente')}</div>
+        <div class="psub" style="margin-top:4px">${(p.models&&p.models.length)
           ? `modèles : ${p.models.map(m=>esc(m)+(m===p.default_model?' ★':'')).join(', ')}`
           : '⚠ aucun modèle déclaré'}</div>
         ${usageGauge('Court terme', p.usage?.short, u=>`sur ${u.hours} h`)}
         ${usageGauge('Long terme', p.usage?.long, u=>`sur ${u.days} j`)}
       </div>
-      <button class="small secondary" onclick='openProviderDlg(${p.id})'>✎ Modifier</button>
-      ${p.is_default?'':`<button class="small secondary" onclick="setDefaultProvider(${p.id})">Définir par défaut</button>`}
-      <button class="small danger" onclick="delProvider(${p.id})">Supprimer</button>
-    </div>`).join('') || '<div class="empty">Aucun provider.</div>';
+    </details>`).join('') || '<div class="empty">Aucun provider.</div>';
 }
 function usageGauge(label, u, windowFn){
   if (!u) return '';

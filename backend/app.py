@@ -540,8 +540,8 @@ def profiles_delete(pid: int):
 
 @app.get("/api/notifications")
 def notifications_list(status: str | None = None, agent_id: int | None = None,
-                       type: str | None = None):
-    return db.list_notifications(status, agent_id, type)
+                       type: str | None = None, profile_id: int | None = None):
+    return db.list_notifications(status, agent_id, type, profile_id)
 
 
 @app.post("/api/notifications/{nid}/answer")
