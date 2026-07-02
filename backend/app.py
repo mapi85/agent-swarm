@@ -929,6 +929,22 @@ def projects_approve(pid: int):
     return {"project": _project_payload(db.get_project(pid)), **result}
 
 
+@app.post("/api/projects/{pid}/retry")
+def projects_retry(pid: int):
+    """Relance une mission là où elle s'est arrêtée : les tâches échouées/annulées
+    (et in_progress orphelines) repassent en pending, les tâches réussies restent acquises."""
+    proj = db.get_project(pid)
+    if not proj:
+        raise HTTPException(404, "Projet inconnu.")
+    if proj["status"] not in ("needs_attention", "running"):
+        raise HTTPException(409, "Seule une mission en cours ou en échec peut être relancée.")
+    reset = db.retry_project_tasks(pid)
+    if not reset:
+        raise HTTPException(409, "Aucune tâche à relancer sur cette mission.")
+    db.update_project(pid, status="running")
+    return {"project": _project_payload(db.get_project(pid)), "tasks_reset": reset}
+
+
 @app.post("/api/projects/{pid}/archive")
 def projects_archive(pid: int):
     if not db.get_project(pid):

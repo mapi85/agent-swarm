@@ -2152,7 +2152,9 @@ function renderProject(p){
   if (p.status==='proposed') actions = `<button onclick="approveProject(${p.id})">Valider et lancer</button>
     <button class="secondary" onclick="replanProject(${p.id})">Régénérer le plan</button>
     <button class="danger" onclick="deleteProject(${p.id})">Supprimer</button>`;
-  else if (['running','completed','needs_attention'].includes(p.status)) actions = `<button class="secondary" onclick="archiveProject(${p.id})">Archiver</button>
+  else if (['running','completed','needs_attention'].includes(p.status)) actions = `
+    ${(p.status==='needs_attention'||(p.status==='running'&&pr.failed))?`<button onclick="retryProject(${p.id})">🔄 Relancer la mission</button>`:''}
+    <button class="secondary" onclick="archiveProject(${p.id})">Archiver</button>
     <button class="danger" onclick="deleteProject(${p.id})">Supprimer</button>`;
   else if (p.status==='archived') actions = `<button class="danger" onclick="deleteProject(${p.id})">Supprimer définitivement</button>`;
   return `<details class="proj" ${isOpen?'open':''} ontoggle="trackProj(this,${p.id})">
@@ -2183,6 +2185,13 @@ async function replanProject(id){
   $('#m-msg').textContent='Régénération du plan…';
   try{ await api(`/api/projects/${id}/replan`,{method:'POST',body:'{}'}); $('#m-msg').textContent=''; loadProjects(); }
   catch(e){ $('#m-msg').textContent=''; alert(e.message); }
+}
+async function retryProject(id){
+  if(!confirm('Relancer cette mission là où elle s\'est arrêtée ?\n\nLes tâches réussies restent acquises ; les tâches échouées ou annulées repartent en attente et seront reprises par leurs agents.'))return;
+  try{ const r=await api(`/api/projects/${id}/retry`,{method:'POST',body:'{}'});
+    $('#m-msg').textContent=`Mission relancée : ${r.tasks_reset} tâche(s) remise(s) en attente.`;
+    setTimeout(()=>{ $('#m-msg').textContent=''; }, 6000);
+    loadProjects(); refresh(); }catch(e){ alert(e.message); }
 }
 async function archiveProject(id){ if(!confirm('Archiver cette mission ? Elle restera consultable.'))return;
   try{ await api(`/api/projects/${id}/archive`,{method:'POST',body:'{}'}); loadProjects(); refresh(); }catch(e){alert(e.message);} }

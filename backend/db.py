@@ -933,6 +933,29 @@ def cancel_downstream(failed_task_id: int, project_id: int) -> list[dict]:
     return cancelled
 
 
+def retry_project_tasks(pid: int) -> int:
+    """Réinitialise les tâches échouées/annulées (et in_progress orphelines) d'une mission
+    en 'pending' pour reprendre là où elle s'est arrêtée. Renvoie le nombre de tâches relancées."""
+    reset = 0
+    for t in project_tasks(pid):
+        if not query_one("SELECT id FROM agents WHERE id = ?", (t["agent_id"],)):
+            continue  # agent supprimé : la tâche ne pourrait jamais être reprise
+        if t["status"] in ("failed", "cancelled"):
+            retry = True
+        elif t["status"] == "in_progress":
+            # orpheline : sa session n'existe plus ou n'est plus en cours (crash, redémarrage)
+            sess = query_one("SELECT status FROM sessions WHERE id = ?", (t["session_id"],)) \
+                if t["session_id"] else None
+            retry = not sess or sess["status"] != "running"
+        else:
+            retry = False
+        if retry:
+            execute("UPDATE tasks SET status = 'pending', session_id = NULL, result = NULL, "
+                    "completed_at = NULL WHERE id = ?", (t["id"],))
+            reset += 1
+    return reset
+
+
 def refresh_project_status(pid: int) -> str | None:
     """Met à jour le statut d'un projet en cours selon ses tâches. Renvoie le nouveau statut s'il a changé."""
     proj = get_project(pid)
