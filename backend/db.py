@@ -564,6 +564,15 @@ def list_providers() -> list[dict]:
     return query("SELECT * FROM providers ORDER BY priority, is_default DESC, id")
 
 
+def set_provider_order(ids: list[int]) -> None:
+    """Applique un ordre de bascule complet (priorités 1..n dans l'ordre donné) ;
+    les providers absents de la liste sont placés après, dans leur ordre actuel."""
+    current = [r["id"] for r in list_providers()]
+    ordered = [pid for pid in ids if pid in current] + [pid for pid in current if pid not in ids]
+    for i, pid in enumerate(ordered, start=1):
+        execute("UPDATE providers SET priority = ? WHERE id = ?", (i, pid))
+
+
 def move_provider(pid: int, direction: str) -> bool:
     """Déplace un provider d'un cran dans l'ordre de bascule. Renvoie False si déjà en butée."""
     rows = list_providers()

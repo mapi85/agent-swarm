@@ -814,6 +814,17 @@ def providers_set_default(pid: int):
     return _provider_payload(db.get_provider(pid))
 
 
+class ProviderOrder(BaseModel):
+    ids: list[int]
+
+
+@app.put("/api/providers/order")
+def providers_order(body: ProviderOrder):
+    """Applique l'ordre de bascule complet (glisser/déposer dans les réglages)."""
+    db.set_provider_order(body.ids)
+    return [_provider_payload(p) for p in db.list_providers()]
+
+
 @app.post("/api/providers/{pid}/move")
 def providers_move(pid: int, direction: str = "up"):
     """Déplace un provider dans l'ordre de bascule (essayé plus tôt ou plus tard en cas d'échec)."""
