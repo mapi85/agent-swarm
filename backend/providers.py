@@ -11,6 +11,9 @@ Les tours assistant produits par un provider Anthropic restent des objets SDK
 dicts. Les deux providers savent relire les deux représentations.
 """
 import json
+import re
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 
 import anthropic
 import httpx
@@ -45,6 +48,67 @@ _ANTHROPIC_TRANSIENT = (
     anthropic.InternalServerError,
     anthropic.APITimeoutError,
 )
+
+
+def is_rate_limit(exc) -> bool:
+    """True si l'erreur est une limite de débit/quota (429)."""
+    if isinstance(exc, anthropic.RateLimitError):
+        return True
+    if isinstance(exc, anthropic.APIStatusError) and exc.status_code == 429:
+        return True
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429:
+        return True
+    return False
+
+
+def resume_time(exc) -> str | None:
+    """Heure de reprise annoncée par un provider limité (ISO UTC), si détectable :
+    en-tête Retry-After (secondes ou date HTTP), en-têtes anthropic-ratelimit-*-reset,
+    ou date ISO présente dans le message d'erreur."""
+    now_utc = datetime.now(timezone.utc)
+    resp = getattr(exc, "response", None)
+    headers = getattr(resp, "headers", None) or {}
+    ra = headers.get("retry-after")
+    if ra:
+        try:
+            return (now_utc + timedelta(seconds=float(ra))).isoformat(timespec="seconds")
+        except ValueError:
+            try:
+                return parsedate_to_datetime(ra).astimezone(timezone.utc).isoformat(timespec="seconds")
+            except (TypeError, ValueError):
+                pass
+    resets = []
+    for k in headers:
+        if k.lower().startswith("anthropic-ratelimit") and k.lower().endswith("-reset"):
+            try:
+                resets.append(datetime.fromisoformat(headers[k].replace("Z", "+00:00")))
+            except ValueError:
+                pass
+    if resets:
+        return max(resets).astimezone(timezone.utc).isoformat(timespec="seconds")
+    m = re.search(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:?\d{2})?", str(exc))
+    if m:
+        try:
+            dt = datetime.fromisoformat(m.group(0).replace(" ", "T").replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            if dt > now_utc:
+                return dt.astimezone(timezone.utc).isoformat(timespec="seconds")
+        except ValueError:
+            pass
+    return None
+
+
+def fallback_model(agent_model: str, row: dict) -> str:
+    """Modèle à utiliser sur un provider de secours : celui de l'agent s'il y est proposé,
+    sinon le modèle par défaut du provider."""
+    try:
+        models = json.loads(row.get("models") or "[]")
+    except (TypeError, ValueError):
+        models = []
+    if models and agent_model not in models:
+        return row.get("default_model") or agent_model
+    return agent_model
 
 
 class AnthropicProvider:

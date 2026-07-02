@@ -197,18 +197,48 @@ def _trim_conversation(conversation: list) -> None:
 _RETRY_DELAYS = (5, 20)  # nouveaux essais sur erreur transitoire (429/5xx/réseau)
 
 
-async def _complete(provider, session_id, agent, **kw):
-    """Appelle le provider de l'agent, avec retries sur erreur transitoire."""
+async def _complete(pstate, session_id, agent, **kw):
+    """Appelle le provider courant (pstate) avec retries sur erreur transitoire.
+    Si l'indisponibilité persiste, bascule sur les autres providers dans l'ordre
+    de priorité (pstate est mis à jour : la session continue sur le provider de secours)."""
+    provider = pstate["provider"]
+    last_exc = None
     for attempt, delay in enumerate((*_RETRY_DELAYS, None)):
         try:
             return await provider.create(**kw)
         except Exception as exc:
-            if delay is None or not provider.is_transient(exc):
+            if not provider.is_transient(exc):
                 raise
+            last_exc = exc
+            if delay is None:
+                break
             db.add_event(session_id, agent["id"], "status",
                          f"Provider '{provider.name}' indisponible ({type(exc).__name__}) — "
                          f"nouvel essai dans {delay}s ({attempt + 1}/{len(_RETRY_DELAYS)}).")
             await asyncio.sleep(delay)
+
+    # Provider courant épuisé : tentative sur les providers de secours, par priorité.
+    for row in db.list_providers():
+        if row["id"] == pstate["row"]["id"]:
+            continue
+        fb_model = providers.fallback_model(agent["model"], row)
+        fkw = dict(kw, model=fb_model)
+        db.add_event(session_id, agent["id"], "status",
+                     f"Bascule sur le provider de secours '{row['name']}' (modèle {fb_model}).")
+        try:
+            fb = providers.build_provider(row)
+            resp = await fb.create(**fkw)
+            pstate.update(provider=fb, row=row, model=fb_model)
+            return resp
+        except Exception as exc2:
+            db.add_event(session_id, agent["id"], "status",
+                         f"Provider de secours '{row['name']}' indisponible ({type(exc2).__name__}).")
+
+    # Tous les providers sont indisponibles : propager l'erreur du provider principal,
+    # enrichie de l'heure de reprise annoncée (utilisée pour re-planifier la session).
+    last_exc._rate_limited = providers.is_rate_limit(last_exc)
+    last_exc._resume_at = providers.resume_time(last_exc)
+    raise last_exc
 
 
 async def run_session(session_id: int) -> None:
@@ -250,10 +280,12 @@ async def run_session(session_id: int) -> None:
     tool_defs = tools.tool_definitions()
 
     total_in = total_out = 0
+    pstate = {"provider": provider, "row": provider_row, "model": agent["model"]}
     last_provider = provider_row["name"]
     finished = False
     finish_input: dict = {}
     error: str | None = None
+    rate_resume: str | None = None
     budget = agent["session_token_budget"] or config.DEFAULT_SESSION_TOKEN_BUDGET
     consecutive_errors = 0
     call_counts: dict = {}
@@ -279,9 +311,10 @@ async def run_session(session_id: int) -> None:
 
             _trim_conversation(conversation)
             response = await _complete(
-                provider, session_id, agent,
-                model=agent["model"], system=system_prompt, messages=conversation,
+                pstate, session_id, agent,
+                model=pstate["model"], system=system_prompt, messages=conversation,
                 tools=tool_defs, max_tokens=config.MAX_TOKENS, effort=agent["effort"])
+            last_provider = pstate["row"]["name"]
             total_in += response.input_tokens
             total_out += response.output_tokens
             db.update_session(session_id, input_tokens=total_in, output_tokens=total_out,
@@ -369,8 +402,25 @@ async def run_session(session_id: int) -> None:
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
         db.add_event(session_id, agent["id"], "error", error)
+        if getattr(exc, "_rate_limited", False):
+            rate_resume = getattr(exc, "_resume_at", None)
 
     # ---- Clôture ----
+    # Limite de débit atteinte avec heure de reprise annoncée proche (< 6h) :
+    # re-planifier la session à cette heure ; les tâches restent ouvertes pour cette reprise.
+    rate_retry_id = None
+    if not finished and rate_resume:
+        try:
+            resume_dt = datetime.fromisoformat(rate_resume)
+            delta = resume_dt - datetime.now(timezone.utc)
+            if timedelta(0) < delta <= timedelta(hours=6):
+                rate_retry_id = db.create_session(agent["id"], session["objective"], rate_resume)
+                db.add_event(session_id, agent["id"], "status",
+                             f"Limite provider atteinte — reprise planifiée à {rate_resume} "
+                             f"(session #{rate_retry_id}).")
+        except (TypeError, ValueError):
+            pass
+
     report = finish_input.get("report") or f"(session close automatiquement — cause : {error or 'inconnue'})"
     deliverables = json.dumps(finish_input.get("deliverables") or [], ensure_ascii=False)
     next_id = _schedule_next(agent, finish_input) if finished else None
@@ -396,6 +446,11 @@ async def run_session(session_id: int) -> None:
 
     task_status = "done" if finished else "failed"
     for t in tasks:
+        if not finished and rate_retry_id:
+            # Échec dû à la limite provider avec reprise planifiée : la tâche reste ouverte,
+            # elle sera reprise par la session re-planifiée (pas d'échec ni d'annulation en aval).
+            db.update_task(t["id"], status="pending", session_id=None)
+            continue
         if finished and t["id"] in unfinished_ids:
             db.update_task(t["id"], status="pending", session_id=None)
             db.add_event(session_id, agent["id"], "status",
@@ -410,7 +465,8 @@ async def run_session(session_id: int) -> None:
                                 f"Ta tâche déléguée #{t['id']} « {t.get('title') or t['description'][:60]} » "
                                 f"est {('terminée' if finished else 'en échec')}. Résultat : {report[:1500]}")
     # Point 1 — propagation d'un échec de tâche de projet : annuler l'aval + alerter.
-    if not finished:
+    # (sauf reprise re-planifiée pour limite provider : les tâches restent ouvertes)
+    if not finished and not rate_retry_id:
         for t in tasks:
             if t.get("project_id"):
                 cancelled_tasks = db.cancel_downstream(t["id"], t["project_id"])
@@ -428,7 +484,8 @@ async def run_session(session_id: int) -> None:
 
     db.add_event(session_id, agent["id"], "status",
                  f"Session terminée ({status}). Tokens : {total_in} in / {total_out} out."
-                 + (f" Prochaine session planifiée (#{next_id})." if next_id else ""))
+                 + (f" Prochaine session planifiée (#{next_id})." if next_id else "")
+                 + (f" Reprise après limite provider planifiée (#{rate_retry_id})." if rate_retry_id else ""))
     db.set_agent_status(agent["id"], "idle")
     RUNNING.pop(session_id, None)
 

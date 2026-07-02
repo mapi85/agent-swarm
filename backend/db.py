@@ -160,6 +160,7 @@ CREATE TABLE IF NOT EXISTS providers (
     limit_short_hours  INTEGER NOT NULL DEFAULT 0,       -- fenêtre court terme (heures)
     limit_long_tokens  INTEGER NOT NULL DEFAULT 0,       -- plafond long terme (tokens)
     limit_long_days    INTEGER NOT NULL DEFAULT 0,       -- fenêtre long terme (jours)
+    priority        INTEGER NOT NULL DEFAULT 0,          -- ordre de bascule (1 = essayé en premier)
     created_at      TEXT NOT NULL
 );
 
@@ -243,6 +244,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
             conn.execute("UPDATE providers SET models = ? WHERE id = ?",
                          (json.dumps(models), p["id"]))
     _seed_providers(conn)
+    if "priority" not in pcols:
+        conn.execute("ALTER TABLE providers ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
+        # Ordre initial : par défaut d'abord, puis ordre de création (comportement historique).
+        rows = conn.execute("SELECT id FROM providers ORDER BY is_default DESC, id").fetchall()
+        for i, r in enumerate(rows, start=1):
+            conn.execute("UPDATE providers SET priority = ? WHERE id = ?", (i, r["id"]))
     ncols = {r["name"] for r in conn.execute("PRAGMA table_info(notifications)")}
     if "external_ids" not in ncols:
         conn.execute("ALTER TABLE notifications ADD COLUMN external_ids TEXT")
@@ -527,6 +534,8 @@ def create_provider(name, ptype, base_url, api_key, default_model, native_featur
         (name, ptype, base_url, api_key, default_model, json.dumps(models or []),
          1 if native_features else 0,
          limit_short_tokens, limit_short_hours, limit_long_tokens, limit_long_days, now()))
+    nxt = query_one("SELECT COALESCE(MAX(priority), 0) + 1 AS n FROM providers")["n"]
+    execute("UPDATE providers SET priority = ? WHERE id = ?", (nxt, pid))
     if is_default:
         set_default_provider(pid)
     return pid
@@ -551,7 +560,27 @@ def get_provider_by_name(name: str) -> dict | None:
 
 
 def list_providers() -> list[dict]:
-    return query("SELECT * FROM providers ORDER BY is_default DESC, id")
+    # priority = ordre de bascule en cas d'indisponibilité (1 essayé en premier).
+    return query("SELECT * FROM providers ORDER BY priority, is_default DESC, id")
+
+
+def move_provider(pid: int, direction: str) -> bool:
+    """Déplace un provider d'un cran dans l'ordre de bascule. Renvoie False si déjà en butée."""
+    rows = list_providers()
+    # Normalise les priorités (1..n) pour garantir des échanges cohérents.
+    for i, r in enumerate(rows, start=1):
+        if r["priority"] != i:
+            execute("UPDATE providers SET priority = ? WHERE id = ?", (i, r["id"]))
+            r["priority"] = i
+    idx = next((i for i, r in enumerate(rows) if r["id"] == pid), None)
+    if idx is None:
+        return False
+    swap = idx - 1 if direction == "up" else idx + 1
+    if swap < 0 or swap >= len(rows):
+        return False
+    execute("UPDATE providers SET priority = ? WHERE id = ?", (rows[swap]["priority"], pid))
+    execute("UPDATE providers SET priority = ? WHERE id = ?", (rows[idx]["priority"], rows[swap]["id"]))
+    return True
 
 
 def update_provider(pid: int, **fields) -> None:

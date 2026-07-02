@@ -814,6 +814,17 @@ def providers_set_default(pid: int):
     return _provider_payload(db.get_provider(pid))
 
 
+@app.post("/api/providers/{pid}/move")
+def providers_move(pid: int, direction: str = "up"):
+    """Déplace un provider dans l'ordre de bascule (essayé plus tôt ou plus tard en cas d'échec)."""
+    if not db.get_provider(pid):
+        raise HTTPException(404, "Provider inconnu.")
+    if direction not in ("up", "down"):
+        raise HTTPException(422, "direction doit être 'up' ou 'down'.")
+    db.move_provider(pid, direction)
+    return [_provider_payload(p) for p in db.list_providers()]
+
+
 @app.delete("/api/providers/{pid}")
 def providers_delete(pid: int):
     p = db.get_provider(pid)

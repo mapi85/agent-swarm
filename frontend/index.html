@@ -606,7 +606,7 @@
   </div>
   <div class="page" style="margin-top:0;border-top:1px solid var(--border)">
     <h2>Providers LLM</h2>
-    <div class="sub">Déclare un ou plusieurs fournisseurs (Anthropic ou compatible, OpenAI ou compatible). Chaque agent peut être rattaché à un provider ; sinon il utilise le provider par défaut.</div>
+    <div class="sub">Déclare un ou plusieurs fournisseurs (Anthropic ou compatible, OpenAI ou compatible). Chaque agent peut être rattaché à un provider ; sinon il utilise le provider par défaut. L'ordre (▲▼) définit la chaîne de secours : si le provider d'un agent est indisponible (limite atteinte, erreur), les autres sont essayés dans cet ordre ; si la limite annonce une reprise sous 6 h, la session est re-planifiée à cette heure.</div>
     <div class="toolbar"><button onclick="openProviderDlg(null)">+ Ajouter un provider</button></div>
     <div id="providers-list"></div>
   </div>
@@ -2308,13 +2308,22 @@ async function deleteChannel(cid){
 }
 
 /* ---------- réglages : providers ---------- */
+async function moveProvider(id, dir){
+  try{ await api(`/api/providers/${id}/move?direction=${dir}`,{method:'POST',body:'{}'}); loadProviders(); }
+  catch(e){ alert(e.message); }
+}
 async function loadProviders(silent){
   providersList = await api('/api/providers');
   if (silent) return;
-  $('#providers-list').innerHTML = providersList.map(p=>`
+  $('#providers-list').innerHTML = providersList.map((p,i)=>`
     <details class="tile">
       <summary>
+        <span style="display:inline-flex;flex-direction:column;gap:1px;flex:none">
+          <button class="small secondary" style="padding:0 7px;line-height:1.3" ${i===0?'disabled':''} onclick="event.stopPropagation();moveProvider(${p.id},'up')" title="Essayé plus tôt en cas d'indisponibilité">▲</button>
+          <button class="small secondary" style="padding:0 7px;line-height:1.3" ${i===providersList.length-1?'disabled':''} onclick="event.stopPropagation();moveProvider(${p.id},'down')" title="Essayé plus tard en cas d'indisponibilité">▼</button>
+        </span>
         <span style="flex:1;min-width:0">
+          <span style="color:var(--muted);font-size:12px">${i+1}.</span>
           <span class="pname">${esc(p.name)}</span>
           <span class="chip ${p.ptype}" style="margin-left:6px">${p.ptype==='anthropic'?'Anthropic-compatible':'OpenAI-compatible'}</span>
           ${p.is_default?'<span class="chip default">défaut</span>':''}
