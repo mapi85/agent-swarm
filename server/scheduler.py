@@ -9,10 +9,11 @@ Modèle « 1 session = 1 tâche » :
 """
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
+from . import notify
 from .config import get_settings
 from .db import SessionLocal
 from .models import Agent, Event, Session, Task, TaskLink
@@ -135,15 +136,45 @@ async def _tick() -> None:
         log.info("lancement de session", extra={"session_id": sid})
         asyncio.create_task(run_session(sid))
 
+    # Dispatch des notifications vers les canaux externes (email/Telegram)
+    await notify.dispatch_pending()
+
+
+async def purge_old_events() -> int:
+    """Supprime les événements des sessions terminées au-delà de la rétention."""
+    days = get_settings().event_retention_days
+    if not days:
+        return 0
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    async with SessionLocal() as db:
+        old_sessions = (
+            await db.execute(
+                select(Session.id).where(Session.status.in_(("completed", "failed", "interrupted")),
+                                         Session.ended_at < cutoff)
+            )
+        ).scalars().all()
+        if not old_sessions:
+            return 0
+        result = await db.execute(delete(Event).where(Event.session_id.in_(old_sessions)))
+        await db.commit()
+        return result.rowcount or 0
+
 
 async def scheduler_loop(stop_event: asyncio.Event) -> None:
     settings = get_settings()
     log.info("planificateur démarré", extra={"interval_s": settings.scheduler_interval_s})
+    ticks = 0
+    purge_period = max(1, 86400 // max(settings.scheduler_interval_s, 1))  # ~1×/jour
     while not stop_event.is_set():
         try:
             await _tick()
+            if ticks % purge_period == 0:
+                purged = await purge_old_events()
+                if purged:
+                    log.info("purge des événements anciens", extra={"deleted": purged})
         except Exception:
             log.exception("erreur dans le tick du planificateur")
+        ticks += 1
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=settings.scheduler_interval_s)
         except asyncio.TimeoutError:

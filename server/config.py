@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     data_dir: Path = Path("data")
 
+    # URL publique de base (pour enregistrer les webhooks Telegram)
+    public_base_url: str = ""
+    # Rétention des événements de session (jours ; 0 = pas de purge)
+    event_retention_days: int = 30
+
     # --- Modèles par défaut ---
     default_model: str = "claude-opus-4-8"
     default_effort: str = "high"

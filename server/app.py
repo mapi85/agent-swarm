@@ -17,13 +17,16 @@ from .logging_setup import setup_logging
 from .routers import (
     agents,
     auth,
+    channels,
     missions,
     notifications,
     providers,
     sessions,
+    stream,
     tasks,
     usage,
     users,
+    webhooks,
 )
 
 log = logging.getLogger("swarm")
@@ -63,6 +66,10 @@ app.include_router(tasks.router)
 app.include_router(missions.router)
 app.include_router(sessions.router)
 app.include_router(notifications.router)
+app.include_router(channels.channels)
+app.include_router(channels.smtp_router)
+app.include_router(webhooks.router)
+app.include_router(stream.router)
 app.include_router(usage.router)
 
 
