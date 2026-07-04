@@ -3,16 +3,28 @@
 Les routeurs métier (auth, agents, tâches, missions…) seront montés ici
 au fil des chantiers suivants.
 """
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from sqlalchemy import text
 
+from . import scheduler
 from .config import get_settings
 from .db import engine
 from .logging_setup import setup_logging
-from .routers import agents, auth, providers, tasks, usage, users
+from .routers import (
+    agents,
+    auth,
+    missions,
+    notifications,
+    providers,
+    sessions,
+    tasks,
+    usage,
+    users,
+)
 
 log = logging.getLogger("swarm")
 
@@ -27,8 +39,17 @@ async def lifespan(app: FastAPI):
         directory.mkdir(parents=True, exist_ok=True)
     async with engine.connect() as conn:
         await conn.execute(text("SELECT 1"))
+    await scheduler.recover_stale_state()
+    stop_event = asyncio.Event()
+    scheduler_task = asyncio.create_task(scheduler.scheduler_loop(stop_event))
     log.info("démarrage", extra={"version": APP_VERSION})
     yield
+    stop_event.set()
+    scheduler_task.cancel()
+    try:
+        await scheduler_task
+    except asyncio.CancelledError:
+        pass
     await engine.dispose()
     log.info("arrêt")
 
@@ -39,6 +60,9 @@ app.include_router(users.router)
 app.include_router(providers.router)
 app.include_router(agents.router)
 app.include_router(tasks.router)
+app.include_router(missions.router)
+app.include_router(sessions.router)
+app.include_router(notifications.router)
 app.include_router(usage.router)
 
 

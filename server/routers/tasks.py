@@ -4,32 +4,17 @@ Les liens entre tâches (task_links) portent les dépendances de mission et la
 porosité : une tâche accède en lecture à toute sa chaîne d'ascendance
 (fermeture transitive, cycles refusés)."""
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
 from ..db import get_db
 from ..models import Agent, Task, TaskLink, User
+from ..routers_common import ancestor_ids
 from ..schemas import TaskCreateIn, TaskDetailOut, TaskLinkIn, TaskLinkOut, TaskOut
 from ..security import ensure_owner, get_current_user
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
-
-_ANCESTORS_SQL = text(
-    """
-    WITH RECURSIVE anc(id) AS (
-        SELECT linked_task_id FROM task_links WHERE task_id = :task_id
-        UNION
-        SELECT tl.linked_task_id FROM task_links tl JOIN anc ON tl.task_id = anc.id
-    )
-    SELECT id FROM anc
-    """
-)
-
-
-async def ancestor_ids(db: AsyncSession, task_id: int) -> set[int]:
-    """Fermeture transitive des liens sortants (toute la chaîne d'ascendance)."""
-    return {row[0] for row in (await db.execute(_ANCESTORS_SQL, {"task_id": task_id})).all()}
 
 
 async def _get_visible(db: AsyncSession, user: User, task_id: int) -> Task:

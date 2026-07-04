@@ -233,3 +233,62 @@ class UsageOut(BaseModel):
     long_used: int
     long_limit: int
     long_days: int
+
+
+# --------------------------------------------------------------------------
+# Missions & sessions
+# --------------------------------------------------------------------------
+
+class MissionCreateIn(BaseModel):
+    mission: str = Field(min_length=1)
+
+
+class MissionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    owner_user_id: int
+    title: str
+    mission: str
+    summary: str
+    plan: dict | None
+    status: str
+    input_tokens: int
+    output_tokens: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class SessionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task_id: int
+    agent_id: int
+    number: int
+    objective: str
+    status: str
+    scheduled_at: datetime | None
+    started_at: datetime | None
+    ended_at: datetime | None
+    report: str | None
+    deliverables: list | None
+    error: str | None
+    provider_id: int | None
+    user_note: str | None
+    input_tokens: int
+    output_tokens: int
+
+
+class EventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    session_id: int
+    ts: datetime
+    type: str
+    content: str
+
+
+class RunNowIn(BaseModel):
+    user_note: str | None = None
