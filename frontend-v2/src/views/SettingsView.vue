@@ -7,6 +7,24 @@ import { fmtTokens } from '../utils.js'
 const auth = useAuth()
 const usage = ref(null)
 const channels = ref([])
+const pw = ref({ current_password: '', new_password: '' })
+const em = ref({ current_password: '', new_email: '' })
+
+async function changePassword() {
+  try {
+    await api.post('/api/auth/change-password', pw.value)
+    alert('Mot de passe changé. Reconnecte-toi.')
+    auth.logout(); location.href = '/login'
+  } catch (e) { alert(e.message) }
+}
+async function changeEmail() {
+  try {
+    const u = await api.post('/api/auth/change-email', em.value)
+    auth.user = u
+    em.value = { current_password: '', new_email: '' }
+    alert('Email mis à jour.')
+  } catch (e) { alert(e.message) }
+}
 const showForm = ref(false)
 const form = ref({ name: '', type: 'email', to: '', bot_token: '', chat_id: '', use_for_alerts: true, use_for_questions: false })
 const testResult = ref({})
@@ -54,6 +72,20 @@ const hasQuota = computed(() => usage.value && (usage.value.short_limit || usage
   <div class="card pad" style="margin-bottom: 1rem">
     <h3>Mon compte</h3>
     <div class="muted">{{ auth.user.email }} · {{ auth.user.role === 'admin' ? 'Administrateur' : 'Utilisateur' }}</div>
+    <div class="grid" style="grid-template-columns: 1fr 1fr; margin-top: 1rem">
+      <div>
+        <h4 style="margin: 0 0 .3rem">Changer mon mot de passe</h4>
+        <input v-model="pw.current_password" type="password" placeholder="Mot de passe actuel" />
+        <input v-model="pw.new_password" type="password" placeholder="Nouveau (min. 8)" style="margin-top: .4rem" />
+        <button class="sm" style="margin-top: .4rem" @click="changePassword">Changer</button>
+      </div>
+      <div>
+        <h4 style="margin: 0 0 .3rem">Changer mon email (identifiant)</h4>
+        <input v-model="em.current_password" type="password" placeholder="Mot de passe actuel" />
+        <input v-model="em.new_email" type="email" placeholder="Nouvel email" style="margin-top: .4rem" />
+        <button class="sm" style="margin-top: .4rem" @click="changeEmail">Changer</button>
+      </div>
+    </div>
   </div>
 
   <div class="card pad" style="margin-bottom: 1rem">

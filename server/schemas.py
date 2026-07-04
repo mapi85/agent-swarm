@@ -21,6 +21,11 @@ class ChangePasswordIn(BaseModel):
     new_password: str = Field(min_length=8, max_length=200)
 
 
+class ChangeEmailIn(BaseModel):
+    current_password: str
+    new_email: EmailStr
+
+
 class SetPasswordIn(BaseModel):
     new_password: str = Field(min_length=8, max_length=200)
 
@@ -55,6 +60,7 @@ class UserCreateIn(BaseModel):
 
 class UserPatchIn(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=120)
+    email: EmailStr | None = None
     role: str | None = Field(default=None, pattern="^(admin|user)$")
     quota_short_tokens: int | None = Field(default=None, ge=0)
     quota_short_hours: int | None = Field(default=None, ge=0)

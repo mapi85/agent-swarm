@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
 from ..models import Notification, User
-from ..schemas import ChangePasswordIn, LoginIn, RegisterIn, TokenOut, UserOut
+from ..schemas import ChangeEmailIn, ChangePasswordIn, LoginIn, RegisterIn, TokenOut, UserOut
 from ..security import (
     get_current_user,
     hash_password,
@@ -131,3 +131,21 @@ async def change_password(
     user.password_hash = hash_password(body.new_password)
     await revoke_all_tokens(db, user.id)  # invalide toutes les sessions, y compris celle-ci
     await db.commit()
+
+
+@router.post("/change-email", response_model=UserOut)
+async def change_email(
+    body: ChangeEmailIn,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Self-service : l'utilisateur change son propre email (= son identifiant),
+    en confirmant son mot de passe."""
+    if not verify_password(user.password_hash, body.current_password):
+        raise HTTPException(status_code=400, detail="Mot de passe incorrect")
+    other = await _get_by_email(db, body.new_email)
+    if other is not None and other.id != user.id:
+        raise HTTPException(status_code=409, detail="Un compte existe déjà avec cet email")
+    user.email = body.new_email
+    await db.commit()
+    return user

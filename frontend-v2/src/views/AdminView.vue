@@ -21,15 +21,34 @@ async function loadSmtp() { smtp.value = { ...(await api.get('/api/settings/smtp
 onMounted(() => { loadUsers(); loadProviders(); loadSmtp() })
 
 // --- users ---
+const userForm = ref(null) // null = fermé
+function newUser() { userForm.value = { email: '', display_name: '', password: '', role: 'user' } }
+async function createUser() {
+  try {
+    await api.post('/api/users', userForm.value)
+    userForm.value = null
+    await loadUsers()
+  } catch (e) { alert(e.message) }
+}
 async function approve(u) { await api.post(`/api/users/${u.id}/approve`); await loadUsers() }
 async function disable(u) { await api.post(`/api/users/${u.id}/disable`); await loadUsers() }
 async function enable(u) { await api.post(`/api/users/${u.id}/enable`); await loadUsers() }
-async function saveQuota(u) {
-  await api.patch(`/api/users/${u.id}`, {
-    quota_short_tokens: u.quota_short_tokens, quota_short_hours: u.quota_short_hours,
-    quota_long_tokens: u.quota_long_tokens, quota_long_days: u.quota_long_days,
-  })
-  alert('Quota enregistré.')
+async function saveUser(u) {
+  try {
+    await api.patch(`/api/users/${u.id}`, {
+      display_name: u.display_name, email: u.email, role: u.role,
+      quota_short_tokens: u.quota_short_tokens, quota_short_hours: u.quota_short_hours,
+      quota_long_tokens: u.quota_long_tokens, quota_long_days: u.quota_long_days,
+    })
+    await loadUsers()
+    alert('Compte enregistré.')
+  } catch (e) { alert(e.message) }
+}
+async function resetPassword(u) {
+  const pw = prompt(`Nouveau mot de passe pour ${u.display_name} (min. 8 caractères) :`)
+  if (!pw) return
+  try { await api.post(`/api/users/${u.id}/set-password`, { new_password: pw }); alert('Mot de passe réinitialisé.') }
+  catch (e) { alert(e.message) }
 }
 
 // --- providers ---
@@ -84,13 +103,20 @@ async function saveSmtp() {
 
   <!-- Utilisateurs -->
   <div v-if="tab === 'users'">
-    <table class="card" style="overflow: hidden">
-      <thead><tr><th>Nom</th><th>Email</th><th>Rôle</th><th>Statut</th><th>Quota court (tok / h)</th><th>Quota long (tok / j)</th><th></th></tr></thead>
+    <div class="row spread" style="margin-bottom: .8rem">
+      <p class="muted" style="margin: 0">Crée, valide et gère les comptes. Un utilisateur ne peut jamais s'auto-élever : seul l'admin change les rôles.</p>
+      <button class="primary sm" @click="newUser">+ Utilisateur</button>
+    </div>
+    <div style="overflow-x: auto">
+    <table class="card" style="overflow: hidden; min-width: 900px">
+      <thead><tr><th>Nom</th><th>Email (identifiant)</th><th>Rôle</th><th>Statut</th><th>Quota court (tok / h)</th><th>Quota long (tok / j)</th><th></th></tr></thead>
       <tbody>
         <tr v-for="u in users" :key="u.id">
-          <td>{{ u.display_name }}</td>
-          <td class="muted">{{ u.email }}</td>
-          <td><span class="badge" :class="u.role === 'admin' ? 'violet' : 'gray'">{{ u.role }}</span></td>
+          <td><input v-model="u.display_name" style="width: 120px" /></td>
+          <td><input v-model="u.email" type="email" style="width: 170px" /></td>
+          <td>
+            <select v-model="u.role" style="width: 90px"><option value="user">user</option><option value="admin">admin</option></select>
+          </td>
           <td><span class="badge" :class="u.status === 'active' ? 'green' : u.status === 'pending' ? 'amber' : 'red'">{{ u.status }}</span></td>
           <td class="row" style="gap: .2rem">
             <input v-model.number="u.quota_short_tokens" type="number" style="width: 90px" />
@@ -104,11 +130,26 @@ async function saveSmtp() {
             <button v-if="u.status === 'pending'" class="primary sm" @click="approve(u)">Valider</button>
             <button v-if="u.status === 'active'" class="ghost sm" @click="disable(u)">Désactiver</button>
             <button v-if="u.status === 'disabled'" class="ghost sm" @click="enable(u)">Réactiver</button>
-            <button class="ghost sm" @click="saveQuota(u)">💾</button>
+            <button class="ghost sm" @click="resetPassword(u)" title="Réinitialiser le mot de passe">🔑</button>
+            <button class="ghost sm" @click="saveUser(u)" title="Enregistrer">💾</button>
           </td>
         </tr>
       </tbody>
     </table>
+    </div>
+
+    <Modal v-if="userForm" title="Nouvel utilisateur" @close="userForm = null">
+      <label>Nom affiché</label><input v-model="userForm.display_name" />
+      <label>Email (identifiant de connexion)</label><input v-model="userForm.email" type="email" />
+      <label>Mot de passe initial (min. 8 caractères)</label><input v-model="userForm.password" type="password" />
+      <label>Rôle</label>
+      <select v-model="userForm.role"><option value="user">Utilisateur</option><option value="admin">Administrateur</option></select>
+      <p class="muted" style="font-size: .82rem; margin-top: .5rem">Le compte est créé <b>actif</b> immédiatement (pas de validation requise).</p>
+      <div class="row" style="justify-content: flex-end; margin-top: 1rem">
+        <button class="ghost" @click="userForm = null">Annuler</button>
+        <button class="primary" @click="createUser">Créer</button>
+      </div>
+    </Modal>
   </div>
 
   <!-- Providers -->

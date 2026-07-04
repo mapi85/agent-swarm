@@ -96,6 +96,14 @@ async def patch_user(
     fields = body.model_dump(exclude_unset=True)
     if user_id == admin.id and fields.get("role") == "user":
         raise HTTPException(status_code=400, detail="Impossible de retirer son propre rôle admin")
+    if "email" in fields and fields["email"]:
+        clash = (
+            await db.execute(
+                select(User.id).where(User.email.ilike(fields["email"]), User.id != user_id)
+            )
+        ).scalar_one_or_none()
+        if clash is not None:
+            raise HTTPException(status_code=409, detail="Un compte existe déjà avec cet email")
     for key, value in fields.items():
         setattr(user, key, value)
     await db.commit()
