@@ -18,12 +18,13 @@ watch(q, (val) => {
 })
 
 function go(path) { open.value = false; q.value = ''; router.push(path) }
+function onBlur() { setTimeout(() => { open.value = false }, 200) }
 </script>
 
 <template>
   <div style="position: relative; flex: 1; max-width: 420px">
     <input v-model="q" placeholder="🔍 Rechercher tâches, missions, ressources…"
-      @focus="res && (open = true)" @blur="setTimeout(() => open = false, 200)" />
+      @focus="res && (open = true)" @blur="onBlur" />
     <div v-if="open && res" class="card pad popover" style="left: 0; right: auto; width: 420px">
       <template v-if="res.tasks.length">
         <div class="muted" style="font-size: .78rem; font-weight: 700">TÂCHES</div>
