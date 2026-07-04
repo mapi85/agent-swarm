@@ -12,6 +12,7 @@ from sqlalchemy import text
 from .config import get_settings
 from .db import engine
 from .logging_setup import setup_logging
+from .routers import auth, users
 
 log = logging.getLogger("swarm")
 
@@ -33,6 +34,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Essaim d'agents autonomes", version=APP_VERSION, lifespan=lifespan)
+app.include_router(auth.router)
+app.include_router(users.router)
 
 
 @app.get("/healthz")
