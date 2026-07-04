@@ -108,7 +108,7 @@ async function saveSmtp() {
       <button class="primary sm" @click="newUser">+ Utilisateur</button>
     </div>
     <div style="overflow-x: auto">
-    <table class="card" style="overflow: hidden; min-width: 900px">
+    <table class="card users" style="overflow: hidden; min-width: 900px">
       <thead><tr><th>Nom</th><th>Email (identifiant)</th><th>Rôle</th><th>Statut</th><th>Quota court (tok / h)</th><th>Quota long (tok / j)</th><th></th></tr></thead>
       <tbody>
         <tr v-for="u in users" :key="u.id">
@@ -219,3 +219,11 @@ async function saveSmtp() {
     <button class="primary" style="margin-top: 1rem" @click="saveSmtp">Enregistrer</button>
   </div>
 </template>
+
+<style scoped>
+/* Table des utilisateurs compacte : lignes basses, champs resserrés */
+.users td, .users th { padding: .2rem .4rem; vertical-align: middle; }
+.users input, .users select { padding: .18em .4em; border-radius: 6px; }
+.users .badge { padding: .05em .45em; }
+.users button.sm { padding: .18em .45em; }
+</style>
