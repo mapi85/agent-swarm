@@ -6,6 +6,7 @@ au fil des chantiers suivants.
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from sqlalchemy import text
@@ -20,7 +21,9 @@ from .routers import (
     channels,
     missions,
     notifications,
+    overview,
     providers,
+    resources,
     sessions,
     stream,
     tasks,
@@ -70,6 +73,8 @@ app.include_router(channels.channels)
 app.include_router(channels.smtp_router)
 app.include_router(webhooks.router)
 app.include_router(stream.router)
+app.include_router(resources.router)
+app.include_router(overview.router)
 app.include_router(usage.router)
 
 
@@ -85,3 +90,20 @@ async def healthz() -> dict:
         from fastapi.responses import JSONResponse
 
         return JSONResponse(status_code=503, content={"status": "degraded", "db": "down"})
+
+
+# --- Front statique (SPA Vue) : monté en dernier pour ne pas masquer l'API ---
+_STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+if _STATIC_DIR.is_dir():
+    from fastapi.responses import FileResponse
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/assets", StaticFiles(directory=_STATIC_DIR / "assets"), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def spa(full_path: str):
+        """Sert les fichiers du build, avec repli sur index.html pour le routage SPA."""
+        candidate = _STATIC_DIR / full_path
+        if full_path and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(_STATIC_DIR / "index.html")

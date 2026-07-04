@@ -1,5 +1,15 @@
-# Backend v2 — même philosophie que la v1 : le conteneur isole le shell
-# des agents de l'hôte, avec l'outillage dont ils ont besoin.
+# Backend v2 + front Vue 3 (build multi-stage).
+# Le conteneur isole le shell des agents de l'hôte, avec l'outillage utile.
+
+# --- Stage 1 : build du front ---
+FROM node:20-slim AS frontend
+WORKDIR /front
+COPY frontend-v2/package.json frontend-v2/package-lock.json* ./
+RUN npm install
+COPY frontend-v2/ ./
+RUN npm run build
+
+# --- Stage 2 : app Python ---
 FROM python:3.12-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -13,10 +23,10 @@ RUN pip install --no-cache-dir -r requirements-v2.txt
 
 COPY alembic.ini .
 COPY server/ server/
+COPY --from=frontend /front/dist/ static/
 
 RUN useradd -ms /bin/bash swarm && mkdir -p /app/data && chown -R swarm:swarm /app
 USER swarm
 
 EXPOSE 8000
-# Les migrations s'appliquent au démarrage, puis l'app prend le relais.
 CMD ["sh", "-c", "alembic upgrade head && exec uvicorn server.app:app --host 0.0.0.0 --port 8000"]
