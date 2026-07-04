@@ -329,8 +329,11 @@ def migrate(sqlite_path: str, force: bool) -> None:
         report["resources"] = n_res
 
         # --- 14. memories (scindées par utilisateur) ---
-        n_mem = 0
-        for m in src.execute("SELECT * FROM memories"):
+        # SQLite considère NULL comme distinct dans un index UNIQUE : la v1 peut donc
+        # avoir des doublons (agent, scope, task_id NULL, mkey) que la contrainte v2
+        # (COALESCE(task_id,0)) rejette. On dédoublonne en gardant la plus récente.
+        deduped = {}
+        for m in src.execute("SELECT * FROM memories ORDER BY updated_at, id"):
             a = agent_by_id.get(m["agent_id"])
             if a is None:
                 continue
@@ -340,12 +343,15 @@ def migrate(sqlite_path: str, force: bool) -> None:
             else:
                 uid = agent_owner(a) or admin_uid
                 tid = None
-            db.execute(insert(Memory.__table__).values(
-                id=m["id"], agent_id=m["agent_id"], user_id=uid,
-                scope=("task" if tid else "agent"), task_id=tid, mkey=m["mkey"], mvalue=m["mvalue"],
-                updated_at=parse_dt(m["updated_at"]) or datetime.now(timezone.utc)))
-            n_mem += 1
-        report["memories"] = n_mem
+            key = (m["agent_id"], uid, "task" if tid else "agent", tid or 0, m["mkey"])
+            deduped[key] = {  # la dernière écriture (ordre updated_at) gagne
+                "id": m["id"], "agent_id": m["agent_id"], "user_id": uid,
+                "scope": "task" if tid else "agent", "task_id": tid, "mkey": m["mkey"],
+                "mvalue": m["mvalue"],
+                "updated_at": parse_dt(m["updated_at"]) or datetime.now(timezone.utc)}
+        for row in deduped.values():
+            db.execute(insert(Memory.__table__).values(**row))
+        report["memories"] = len(deduped)
 
         # --- 15. services ---
         n_svc = 0
