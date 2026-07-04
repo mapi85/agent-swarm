@@ -1,0 +1,22 @@
+# Backend v2 — même philosophie que la v1 : le conteneur isole le shell
+# des agents de l'hôte, avec l'outillage dont ils ont besoin.
+FROM python:3.12-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        bash git curl ca-certificates build-essential procps \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements-v2.txt .
+RUN pip install --no-cache-dir -r requirements-v2.txt
+
+COPY alembic.ini .
+COPY server/ server/
+
+RUN useradd -ms /bin/bash swarm && mkdir -p /app/data && chown -R swarm:swarm /app
+USER swarm
+
+EXPOSE 8000
+# Les migrations s'appliquent au démarrage, puis l'app prend le relais.
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn server.app:app --host 0.0.0.0 --port 8000"]
