@@ -9,7 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
 from ..models import User
-from ..schemas import SetPasswordIn, UserCreateIn, UserOut, UserPatchIn
+from ..quotas import user_quota_status
+from ..schemas import SetPasswordIn, UsageOut, UserCreateIn, UserOut, UserPatchIn
 from ..security import hash_password, require_admin, revoke_all_tokens
 
 router = APIRouter(prefix="/api/users", tags=["users"], dependencies=[Depends(require_admin)])
@@ -99,6 +100,11 @@ async def patch_user(
         setattr(user, key, value)
     await db.commit()
     return user
+
+
+@router.get("/{user_id}/usage", response_model=UsageOut)
+async def user_usage(user_id: int, db: AsyncSession = Depends(get_db)):
+    return await user_quota_status(db, await _get_or_404(db, user_id))
 
 
 @router.post("/{user_id}/set-password", status_code=204)
