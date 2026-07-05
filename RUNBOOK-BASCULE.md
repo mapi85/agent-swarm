@@ -30,12 +30,18 @@ La v1 et son volume ne sont **jamais modifiés** → retour arrière possible à
 # (idéalement : copier ~/backups/data/ hors du serveur)
 ```
 
-## 2. Geler la v1
+## 2. Geler la v1  — ⚠️ ÉTAPE CLÉ CONTRE LA DÉRIVE
+
+La v1 tourne encore : sa base ET ses fichiers grossissent en continu (constaté :
+~4000 fichiers de livrables générés en quelques heures). **Le dump et les fichiers
+doivent être pris sur une v1 ARRÊTÉE**, sinon base et fichiers seront incohérents.
 
 ```bash
 cd ~/agent-swarm
-sudo docker compose stop        # arrête l'app v1 : les agents s'arrêtent, la base se fige
+sudo docker compose stop        # arrête l'app v1 : agents stoppés, base + volume figés
 ```
+À partir d'ici, plus rien ne bouge côté v1 : le dump (étape 3) et la migration des
+fichiers (étape 4b) portent sur le même instantané cohérent.
 
 ## 3. Extraire un dump v1 frais (v1 arrêtée → volume stable)
 
@@ -44,6 +50,8 @@ mkdir -p ~/mig
 docker run --rm -v agent-swarm_swarm-data:/v1:ro -v ~/mig:/out alpine \
   cp /v1/swarm.db /out/v1.db
 ```
+> Le dump utilisé lors des répétitions (4 juillet) est **périmé** : utilise TOUJOURS
+> ce dump frais pour la bascule réelle.
 
 ## 4. Migrer vers la v2 (base + fichiers)
 
@@ -57,15 +65,21 @@ docker compose -f docker-compose.v2.yml -p agent-swarm-v2 stop app   # scheduler
 docker compose -f docker-compose.v2.yml -p agent-swarm-v2 run --rm \
   -v ~/mig/v1.db:/tmp/v1.db:ro app python -m server.migrate_v1 /tmp/v1.db --force
 
-# 4b. Fichiers : workdirs + ressources (volume v1 monté en lecture seule)
+# 4b. Fichiers : workdirs + ressources (le MÊME volume v1 figé qu'à l'étape 2/3)
 docker compose -f docker-compose.v2.yml -p agent-swarm-v2 run --rm \
   -v agent-swarm_swarm-data:/v1:ro app python -m server.migrate_files /v1
 
-# 4c. GELER tous les agents avant de démarrer (sinon ils repartent seuls)
+# 4c. VÉRIFICATION — PORTE OBLIGATOIRE : ne pas continuer si le verdict n'est pas ✅
+docker compose -f docker-compose.v2.yml -p agent-swarm-v2 run --rm \
+  -v ~/mig/v1.db:/tmp/v1.db:ro app python -m server.migrate_verify /tmp/v1.db
+#   → attendu en fin de sortie : « VERDICT : ✅ RÉCONCILIATION COMPLÈTE »
+#   → toute anomalie (⚠) : STOP, diagnostiquer, ne PAS basculer.
+
+# 4d. GELER tous les agents avant de démarrer (sinon ils repartent seuls)
 docker compose -f docker-compose.v2.yml -p agent-swarm-v2 exec -T db \
   psql -U swarm -d swarm -c "UPDATE agents SET paused = true;"
 
-# 4d. Démarrer la v2
+# 4e. Démarrer la v2
 docker compose -f docker-compose.v2.yml -p agent-swarm-v2 up -d app
 sleep 5 && curl -s http://127.0.0.1:8001/healthz     # doit répondre status:ok
 ```
