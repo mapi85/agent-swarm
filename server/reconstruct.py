@@ -177,7 +177,8 @@ def reconstruct(apply: bool) -> None:
             # tâche-socle + bilan de session unique
             socle = db.execute(text(
                 "INSERT INTO tasks (mission_id, agent_id, owner_user_id, title, description, status, "
-                "created_by, created_at, completed_at) VALUES (NULL,:a,:u,:ti,:de,'done','user',:t,:t) RETURNING id"),
+                "created_by, input_tokens, output_tokens, created_at, completed_at) "
+                "VALUES (NULL,:a,:u,:ti,:de,'done','user',0,0,:t,:t) RETURNING id"),
                 {"a": aid, "u": owner, "ti": "Socle de reprise (bilan + mémoire consolidée)",
                  "de": "Point de reprise v2 : mémoire consolidée et bilan unique.", "t": now}).scalar()
             db.execute(text(
@@ -188,7 +189,8 @@ def reconstruct(apply: bool) -> None:
             for title, desc in cur["tasks"]:
                 db.execute(text(
                     "INSERT INTO tasks (mission_id, agent_id, owner_user_id, title, description, status, "
-                    "created_by, created_at) VALUES (NULL,:a,:u,:ti,:de,'pending','user',:t)"),
+                    "created_by, input_tokens, output_tokens, created_at) "
+                    "VALUES (NULL,:a,:u,:ti,:de,'pending','user',0,0,:t)"),
                     {"a": aid, "u": owner, "ti": title, "de": desc, "t": now})
 
         # Réalignement des séquences
