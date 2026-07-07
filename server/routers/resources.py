@@ -4,7 +4,7 @@ depuis la tâche concernée."""
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import PlainTextResponse, Response
+from fastapi.responses import FileResponse, PlainTextResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -80,8 +80,8 @@ async def resource_content(rid: int, user: User = Depends(get_current_user), db:
         fp = get_settings().resources_dir / r.filename
         if not fp.exists():
             raise HTTPException(status_code=404, detail="Fichier manquant")
-        return Response(content=fp.read_bytes(),
-                        headers={"Content-Disposition": f'attachment; filename="{r.name}"'})
+        # FileResponse gère l'encodage RFC 5987 des noms non-ASCII (ex. tiret cadratin)
+        return FileResponse(fp, filename=r.name)
     return PlainTextResponse(r.content or "")
 
 
