@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     tool_result_max_chars: int = 12000
     context_trim_threshold: int = 150000
     context_keep_last: int = 8
-    default_session_token_budget: int = 0
+    default_session_token_budget: int = 120000  # tokens FRAIS (hors cache) ; 0 = illimité
     max_consecutive_tool_errors: int = 6
     max_repeat_tool_calls: int = 4
 

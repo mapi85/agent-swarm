@@ -74,6 +74,64 @@ def _cap_tool_result(text: str) -> str:
     return f"{text[:head]}\n[... {len(text) - limit} caractères élidés ...]\n{text[-tail:]}"
 
 
+def _flatten_msg(m: dict) -> str:
+    role = m.get("role", "?")
+    content = m.get("content")
+    if isinstance(content, str):
+        return f"[{role}] {content}"
+    parts = []
+    for b in (content or []):
+        t = block_type(b)
+        if t == "text":
+            parts.append(block_get(b, "text", ""))
+        elif t == "thinking":
+            parts.append("(réflexion) " + (block_get(b, "thinking", "") or "")[:400])
+        elif t == "tool_use":
+            parts.append(f"→ {block_get(b, 'name')}: {json.dumps(block_get(b, 'input', {}) or {}, ensure_ascii=False)[:400]}")
+        elif t == "tool_result":
+            c = block_get(b, "content", "")
+            if isinstance(c, list):
+                c = " ".join(block_get(x, "text", "") for x in c if block_type(x) == "text")
+            parts.append(f"← {str(c)[:600]}")
+    return f"[{role}] " + " ".join(p for p in parts if p)
+
+
+async def _compact_if_needed(conversation: list, pstate: dict, effort: str, session_id: int, db) -> list:
+    """Compaction : quand le contexte devient volumineux, résume les vieux tours avec
+    LE MODÈLE DE L'AGENT (effort réduit pour la synthèse), en préservant l'information
+    utile. Réduit le contexte des tours suivants sans changer de modèle."""
+    settings = get_settings()
+    keep = settings.context_keep_last
+    total = sum(len(str(m.get("content", ""))) for m in conversation)
+    if total < settings.context_trim_threshold or len(conversation) <= keep + 2:
+        return conversation
+    # Le résumé est un tour 'user' → la partie récente doit commencer par un tour 'assistant'
+    # pour préserver l'alternance user/assistant.
+    split = max(1, len(conversation) - keep)
+    while split < len(conversation) and conversation[split].get("role") != "assistant":
+        split += 1
+    if len(conversation) - split < 2:
+        return conversation
+    old, recent = conversation[:split], conversation[split:]
+    text_old = "\n".join(_flatten_msg(m) for m in old)[:60000]
+    try:
+        resp = await pstate["provider"].create(
+            model=pstate["model"],
+            system="Tu compactes un historique de travail sans perdre l'information utile.",
+            messages=[{"role": "user", "content":
+                "Résume de façon DENSE et FACTUELLE l'échange ci-dessous pour poursuivre le travail "
+                "sans reperdre le contexte : décisions, état courant, faits/valeurs clés, fichiers "
+                "produits, points en suspens. Ne perds aucune donnée importante.\n\n" + text_old}],
+            tools=[], max_tokens=2000, effort="low")
+        summary = "".join(block_get(b, "text", "") for b in resp.blocks if block_type(b) == "text").strip()
+    except Exception:
+        return conversation  # en cas d'échec, on préserve la conversation telle quelle
+    if not summary:
+        return conversation
+    await _log_event(db, session_id, "status", f"Contexte compacté ({len(old)} tours résumés).")
+    return [{"role": "user", "content": f"[Résumé du contexte antérieur]\n{summary}"}] + list(recent)
+
+
 def _trim_conversation(conversation: list) -> None:
     settings = get_settings()
     keep = settings.context_keep_last
@@ -300,6 +358,8 @@ async def run_session(session_id: int) -> None:
     rate_resume: str | None = None
     consecutive_errors = 0
     call_counts: dict = {}
+    wrapping_up = False   # budget atteint : on demande une clôture avec continuation
+    grace = 0
 
     async with SessionLocal() as db:
         try:
@@ -307,17 +367,25 @@ async def run_session(session_id: int) -> None:
                 if cancelled():
                     error = "interrupted"
                     break
-                if budget and (total_in + total_out) > budget:
-                    error = "budget_exceeded"
-                    await _log_event(db, session_id, "error",
-                                     f"Budget de tokens dépassé ({total_in + total_out} > {budget}).")
-                    db.add(Notification(user_id=user_id, agent_id=agent_id, task_id=task_id,
-                                        session_id=session_id, type="alert",
-                                        content=f"Budget de tokens dépassé sur la tâche #{task_id} — session arrêtée."))
-                    await db.commit()
-                    break
+                # Budget calculé sur les tokens FRAIS (hors cache de préfixe), pour refléter le coût réel.
+                fresh = (total_in - total_cached) + total_out
+                if budget and fresh > budget:
+                    if not wrapping_up:
+                        wrapping_up, grace = True, 3
+                        conversation.append({"role": "user", "content":
+                            "[système] Budget de session atteint. Termine MAINTENANT : appelle "
+                            "finish_session avec un rapport résumant précisément ton avancement, "
+                            "task_completed=false et un next_objective clair pour reprendre à la "
+                            "prochaine session."})
+                        await _log_event(db, session_id, "status",
+                                         "Budget atteint — clôture avec continuation demandée.")
+                    else:
+                        grace -= 1
+                        if grace <= 0:
+                            error = "budget_continuation"  # continuation forcée (pas un échec)
+                            break
 
-                _trim_conversation(conversation)
+                conversation = await _compact_if_needed(conversation, pstate, agent_effort, session_id, db)
                 response = await _complete(
                     pstate, db, session_id, agent_model,
                     model=pstate["model"], system=system_prompt, messages=conversation,
@@ -420,6 +488,17 @@ async def _close_session(db, session_id, task_id, agent_id, user_id, objective, 
                          rate_resume, total_in, total_out, total_cached=0) -> None:
     session = await db.get(Session, session_id)
     task = await db.get(Task, task_id)
+
+    # Continuation forcée sur budget : on la traite comme une clôture propre avec reprise.
+    if error == "budget_continuation":
+        finished = True
+        finish_input = {**finish_input,
+                        "report": finish_input.get("report") or
+                        "Session close sur budget de tokens ; reprise planifiée pour poursuivre la tâche.",
+                        "task_completed": False,
+                        "next_objective": finish_input.get("next_objective") or objective,
+                        "next_run_minutes": 1}
+        error = None
 
     quotas.record_usage(db, user_id=user_id, provider_id=provider_row_id, agent_id=agent_id,
                         task_id=task_id, session_id=session_id,
