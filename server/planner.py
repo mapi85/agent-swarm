@@ -30,6 +30,7 @@ Règles :
   que si aucun agent existant ne convient, en le décrivant précisément (nom, description, mission_prompt).
 - Exprime les enchaînements via depends_on (refs locales des tâches prérequises). Pas de dépendance = parallèle.
 - Chaque description de tâche doit être autonome et complète (contexte, attendu, critères de réussite).
+- Sobriété des NOUVEAUX agents : si tu proposes un new_agent, son mission_prompt doit être sobre en tokens sans perte de qualité — calcul déterministe dans des scripts (pas dans le LLM), prompt concis, sortie structurée quand possible, discipline mémoire (faits en mémoire structurée, MEMORY.md court), effort adapté à la complexité (jamais un modèle moindre, seulement moduler l'effort). La plateforme applique déjà cache, plafond de tokens/session et compaction : conçois pour des sessions bornées avec reprise (finish_session + next_objective).
 
 Réponds UNIQUEMENT avec un objet JSON valide, sans texte autour :
 {
