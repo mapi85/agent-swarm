@@ -8,6 +8,8 @@
   --muted: #52607a;         /* texte secondaire plus lisible */
   --primary: #4f46e5;
   --primary-weak: #eef2ff;
+  --theme: #0e7490;          /* couleur dédiée aux tags de thème (teal) */
+  --theme-weak: #dceff4;
   --green: #12805c;
   --green-weak: #e6f6ef;
   --amber: #b25e09;
@@ -70,6 +72,12 @@ textarea { resize: vertical; min-height: 70px; }
 .badge.red { background: var(--red-weak); color: var(--red); }
 .badge.violet { background: var(--violet-weak); color: var(--violet); }
 .badge.blue { background: var(--primary-weak); color: var(--primary); }
+.badge.teal { background: var(--theme-weak); color: var(--theme); }
+
+/* Chips de filtre par thème : couleur dédiée (teal), distincte des filtres de statut */
+button.themebtn { border-color: #a9d4df; color: var(--theme); }
+button.themebtn:hover { background: var(--theme-weak); }
+button.themebtn.on { background: var(--theme); color: #fff; border-color: var(--theme); }
 
 .kpi { padding: .9rem 1rem; }
 .kpi .n { font-size: 1.7rem; font-weight: 700; }

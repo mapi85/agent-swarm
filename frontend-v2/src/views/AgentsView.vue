@@ -36,8 +36,8 @@ async function onSaved() { showForm.value = false; await load() }
 
   <!-- Filtres par thème (tags des agents) -->
   <div v-if="themes.length" class="row wrap" style="gap: .35rem; margin-bottom: 1rem">
-    <button class="sm" :class="{ primary: !theme }" @click="theme = ''">Tous</button>
-    <button v-for="t in themes" :key="t" class="sm" :class="{ primary: theme === t }" @click="theme = t">
+    <button class="sm themebtn" :class="{ on: !theme }" @click="theme = ''">Tous</button>
+    <button v-for="t in themes" :key="t" class="sm themebtn" :class="{ on: theme === t }" @click="theme = t">
       🏷 {{ t }}
     </button>
   </div>
@@ -52,7 +52,7 @@ async function onSaved() { showForm.value = false; await load() }
       </div>
       <div class="muted" style="font-size: .85rem; margin: .3rem 0; min-height: 2.4em">{{ a.description || '—' }}</div>
       <div class="row wrap" style="gap: .4rem; font-size: .78rem">
-        <span v-if="a.category" class="badge gray">🏷 {{ a.category }}</span>
+        <span v-if="a.category" class="badge teal">🏷 {{ a.category }}</span>
         <span v-if="a.running_tasks" class="badge blue">{{ a.running_tasks }} en cours</span>
         <span v-if="a.open_tasks" class="badge gray">{{ a.open_tasks }} en attente</span>
         <span class="muted">{{ a.model }}</span>
