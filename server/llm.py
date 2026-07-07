@@ -37,11 +37,29 @@ def block_get(b, key, default=None):
 
 
 class LLMResponse:
-    def __init__(self, blocks, stop_reason, input_tokens, output_tokens):
+    def __init__(self, blocks, stop_reason, input_tokens, output_tokens, cached=0):
         self.blocks = blocks
         self.stop_reason = stop_reason
-        self.input_tokens = input_tokens
+        self.input_tokens = input_tokens      # total (dont cache_read + cache_creation)
         self.output_tokens = output_tokens
+        self.cached = cached                  # tokens relus depuis le cache (facturés à prix réduit)
+
+
+def _with_cache(messages):
+    """Renvoie une COPIE des messages avec un point de cache (cache_control ephemeral)
+    sur le dernier bloc du dernier tour. Point roulant : le préfixe grandissant est
+    facturé à prix réduit tant qu'il correspond. N'altère pas la conversation d'origine
+    (sinon accumulation de points de cache > 4 → erreur API)."""
+    if not messages:
+        return messages
+    out = list(messages)
+    last = out[-1]
+    content = last.get("content") if isinstance(last, dict) else None
+    if isinstance(content, list) and content and isinstance(content[-1], dict):
+        blocks = list(content)
+        blocks[-1] = {**blocks[-1], "cache_control": {"type": "ephemeral"}}
+        out[-1] = {**last, "content": blocks}
+    return out
 
 
 _ANTHROPIC_TRANSIENT = (
@@ -129,6 +147,9 @@ class AnthropicProvider:
         return any(k in model for k in ("opus", "sonnet", "fable"))
 
     async def create(self, *, model, system, messages, tools, max_tokens, effort) -> LLMResponse:
+        # Cache de préfixe : système (stable) + point roulant sur la conversation.
+        cached_system = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+        msgs = _with_cache(messages)
         if self.native and self._supports_advanced(model):
             resp = await self.client.beta.messages.create(
                 model=model,
@@ -137,29 +158,26 @@ class AnthropicProvider:
                 context_management={"edits": [{"type": "compact_20260112"}]},
                 thinking={"type": "adaptive"},
                 output_config={"effort": effort},
-                system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+                system=cached_system,
                 tools=tools,
-                messages=messages,
+                messages=msgs,
             )
         elif self.native:
             resp = await self.client.messages.create(
-                model=model,
-                max_tokens=max_tokens,
-                system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
-                tools=tools,
-                messages=messages,
+                model=model, max_tokens=max_tokens, system=cached_system, tools=tools, messages=msgs,
             )
         else:
-            # Endpoint compatible sans fonctionnalités avancées : outils personnalisés seulement.
+            # Endpoint compatible sans fonctionnalités avancées : outils personnalisés seulement,
+            # et pas de cache_control (non garanti).
             custom_tools = [t for t in tools if "input_schema" in t]
             resp = await self.client.messages.create(
                 model=model, max_tokens=max_tokens, system=system,
                 tools=custom_tools, messages=messages,
             )
         u = resp.usage
-        intok = u.input_tokens + (getattr(u, "cache_read_input_tokens", 0) or 0) \
-            + (getattr(u, "cache_creation_input_tokens", 0) or 0)
-        return LLMResponse(list(resp.content), resp.stop_reason, intok, u.output_tokens)
+        cache_read = getattr(u, "cache_read_input_tokens", 0) or 0
+        intok = u.input_tokens + cache_read + (getattr(u, "cache_creation_input_tokens", 0) or 0)
+        return LLMResponse(list(resp.content), resp.stop_reason, intok, u.output_tokens, cached=cache_read)
 
     def is_transient(self, exc) -> bool:
         if isinstance(exc, _ANTHROPIC_TRANSIENT):
@@ -270,7 +288,9 @@ class OpenAIProvider:
         if any(block_type(b) == "tool_use" for b in blocks):
             stop = "tool_use"
         usage = data.get("usage") or {}
-        return LLMResponse(blocks, stop, usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0))
+        cached = (usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0) or 0
+        return LLMResponse(blocks, stop, usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0),
+                           cached=cached)
 
     def is_transient(self, exc) -> bool:
         if isinstance(exc, httpx.HTTPStatusError):

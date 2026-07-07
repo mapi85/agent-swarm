@@ -293,7 +293,7 @@ async def run_session(session_id: int) -> None:
     tool_defs = agent_tools.tool_definitions()
     pstate = {"provider": llm.build_provider(provider_row), "row": provider_row, "model": agent_model}
 
-    total_in = total_out = 0
+    total_in = total_out = total_cached = 0
     finished = False
     finish_input: dict = {}
     error: str | None = None
@@ -324,6 +324,7 @@ async def run_session(session_id: int) -> None:
                     tools=tool_defs, max_tokens=settings.max_tokens, effort=agent_effort)
                 total_in += response.input_tokens
                 total_out += response.output_tokens
+                total_cached += getattr(response, "cached", 0)
 
                 for block in response.blocks:
                     bt = block_type(block)
@@ -408,20 +409,22 @@ async def run_session(session_id: int) -> None:
         await _close_session(
             db, session_id, task_id, agent_id, user_id, objective, memory_dir, session_number,
             provider_row_id=pstate["row"].id, finished=finished, finish_input=finish_input,
-            error=error, rate_resume=rate_resume, total_in=total_in, total_out=total_out)
+            error=error, rate_resume=rate_resume, total_in=total_in, total_out=total_out,
+            total_cached=total_cached)
 
     RUNNING.pop(session_id, None)
 
 
 async def _close_session(db, session_id, task_id, agent_id, user_id, objective, memory_dir,
                          session_number, *, provider_row_id, finished, finish_input, error,
-                         rate_resume, total_in, total_out) -> None:
+                         rate_resume, total_in, total_out, total_cached=0) -> None:
     session = await db.get(Session, session_id)
     task = await db.get(Task, task_id)
 
     quotas.record_usage(db, user_id=user_id, provider_id=provider_row_id, agent_id=agent_id,
                         task_id=task_id, session_id=session_id,
-                        input_tokens=total_in, output_tokens=total_out)
+                        input_tokens=total_in, output_tokens=total_out,
+                        cached_input_tokens=total_cached)
     task.input_tokens += total_in
     task.output_tokens += total_out
 

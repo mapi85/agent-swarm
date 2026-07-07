@@ -165,6 +165,8 @@ onUnmounted(() => { if (stop) stop() })
       <div class="card kpi"><div class="l">Sessions facturées</div><div class="n">{{ tok.sessions }}</div></div>
       <div class="card kpi"><div class="l">Moyenne / session</div><div class="n">{{ fmtTokens(tok.avg_per_session) }}</div></div>
       <div class="card kpi"><div class="l">Session la plus lourde</div><div class="n">{{ fmtTokens(tok.heaviest_session) }}</div></div>
+      <div class="card kpi" title="Part des tokens d'entrée relue depuis le cache de préfixe (facturée à prix réduit)">
+        <div class="l">Cache (préfixe relu)</div><div class="n">{{ tok.cache_hit_rate ?? 0 }}%</div></div>
     </div>
 
     <div v-if="tok.by_time.length" class="card pad" style="margin-top: 1rem">

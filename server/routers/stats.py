@@ -40,7 +40,8 @@ async def token_stats(
 
     totals = (await db.execute(text(
         f"SELECT COALESCE(SUM(input_tokens),0) i, COALESCE(SUM(output_tokens),0) o, "
-        f"COUNT(DISTINCT session_id) s FROM token_usage tu WHERE {w}"), params)).mappings().first()
+        f"COALESCE(SUM(cached_input_tokens),0) c, COUNT(DISTINCT session_id) s "
+        f"FROM token_usage tu WHERE {w}"), params)).mappings().first()
     heaviest = (await db.execute(text(
         f"SELECT COALESCE(MAX(t),0) m FROM (SELECT SUM(input_tokens+output_tokens) t "
         f"FROM token_usage tu WHERE {w} GROUP BY session_id) x"), params)).scalar()
@@ -61,8 +62,11 @@ async def token_stats(
 
     total = (totals["i"] or 0) + (totals["o"] or 0)
     sess = totals["s"] or 0
+    cached = totals["c"] or 0
     return {
         "input": totals["i"] or 0, "output": totals["o"] or 0, "total": total,
+        "cached_input": cached,
+        "cache_hit_rate": round(cached / totals["i"] * 100) if totals["i"] else 0,
         "sessions": sess, "avg_per_session": round(total / sess) if sess else 0,
         "heaviest_session": heaviest or 0,
         "by_agent": [dict(r) for r in by_agent],

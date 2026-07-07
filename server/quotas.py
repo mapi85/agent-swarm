@@ -86,6 +86,7 @@ def record_usage(
     session_id: int | None = None,
     input_tokens: int = 0,
     output_tokens: int = 0,
+    cached_input_tokens: int = 0,
 ) -> None:
     """Une ligne par appel LLM (le commit appartient à l'appelant)."""
     db.add(
@@ -97,5 +98,6 @@ def record_usage(
             session_id=session_id,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            cached_input_tokens=cached_input_tokens,
         )
     )

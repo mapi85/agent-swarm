@@ -252,6 +252,8 @@ class TokenUsage(Base):
     session_id: Mapped[int | None] = mapped_column(ForeignKey("sessions.id", ondelete="SET NULL"))
     input_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     output_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    # part des input_tokens relue depuis le cache de préfixe (facturée à prix réduit)
+    cached_input_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
 
 
 # --------------------------------------------------------------------------
