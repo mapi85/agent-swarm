@@ -10,6 +10,7 @@ const providers = ref([])
 const smtp = ref({ host: '', port: 587, user: '', from_addr: '', password: '', password_set: false })
 
 const provForm = ref(null) // null = fermé
+const expanded = ref({}) // provider id -> liste des modèles dépliée
 const emptyProv = () => ({ id: null, name: '', ptype: 'anthropic', base_url: '', api_key: '',
   default_model: '', models: '', native_features: true, is_default: false,
   limit_short_tokens: 0, limit_short_hours: 0, limit_long_tokens: 0, limit_long_days: 0 })
@@ -175,7 +176,17 @@ async function saveSmtp() {
         </div>
         <div class="muted" style="font-size: .82rem; margin-top: .3rem">
           {{ p.base_url || 'API officielle' }} · clé {{ p.api_key_set ? 'définie' : '⚠ absente' }} ·
-          modèles : {{ (p.models || []).join(', ') || '—' }}
+          <template v-if="(p.models || []).length">
+            <a href="#" @click.prevent="expanded[p.id] = !expanded[p.id]">
+              {{ p.models.length }} modèle{{ p.models.length > 1 ? 's' : '' }} {{ expanded[p.id] ? '▲' : '▾' }}
+            </a>
+            <span v-if="p.default_model"> · défaut : {{ p.default_model }}</span>
+          </template>
+          <span v-else>aucun modèle</span>
+        </div>
+        <div v-if="expanded[p.id]" class="row wrap" style="gap: .25rem; margin-top: .4rem">
+          <span v-for="m in p.models" :key="m" class="badge gray"
+            :class="{ blue: m === p.default_model }" style="font-size: .72rem">{{ m }}</span>
         </div>
       </div>
     </div>

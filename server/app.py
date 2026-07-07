@@ -25,6 +25,7 @@ from .routers import (
     providers,
     resources,
     sessions,
+    stats,
     stream,
     tasks,
     usage,
@@ -75,6 +76,7 @@ app.include_router(webhooks.router)
 app.include_router(stream.router)
 app.include_router(resources.router)
 app.include_router(overview.router)
+app.include_router(stats.router)
 app.include_router(usage.router)
 
 
