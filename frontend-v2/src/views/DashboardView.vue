@@ -94,6 +94,20 @@ onUnmounted(() => { if (stop) stop() })
 <template>
   <h1>Tableau de bord</h1>
 
+  <!-- Questions en attente (en haut ; masqué s'il n'y en a pas) -->
+  <template v-if="questions.length">
+    <h2>❓ Questions en attente</h2>
+    <div class="stack" style="margin-bottom: 1.2rem">
+      <div v-for="n in questions" :key="n.id" class="card pad">
+        <div class="muted" style="font-size: .8rem">Tâche #{{ n.task_id }}</div>
+        <Markdown :text="n.content" style="margin: .3rem 0" />
+        <textarea v-model="replies[n.id]" placeholder="Ta réponse… (Ctrl+Entrée)" rows="2"
+          @keydown.ctrl.enter="answer(n)"></textarea>
+        <button class="primary sm" style="margin-top: .4rem" @click="answer(n)">Répondre</button>
+      </div>
+    </div>
+  </template>
+
   <!-- KPIs -->
   <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(150px, 1fr))">
     <div v-for="k in kpis" :key="k.key" class="card kpi" style="cursor: pointer" @click="router.push(k.to)">
@@ -180,16 +194,4 @@ onUnmounted(() => { if (stop) stop() })
     </div>
   </template>
 
-  <!-- Questions en attente -->
-  <h2 style="margin-top: 1.5rem">❓ Questions en attente</h2>
-  <div v-if="!questions.length" class="card pad empty">Aucune question en attente.</div>
-  <div v-else class="stack">
-    <div v-for="n in questions" :key="n.id" class="card pad">
-      <div class="muted" style="font-size: .8rem">Tâche #{{ n.task_id }}</div>
-      <Markdown :text="n.content" style="margin: .3rem 0" />
-      <textarea v-model="replies[n.id]" placeholder="Ta réponse… (Ctrl+Entrée)" rows="2"
-        @keydown.ctrl.enter="answer(n)"></textarea>
-      <button class="primary sm" style="margin-top: .4rem" @click="answer(n)">Répondre</button>
-    </div>
-  </div>
 </template>
