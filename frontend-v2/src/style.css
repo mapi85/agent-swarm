@@ -1,9 +1,11 @@
 :root {
-  --bg: #f6f7f9;
+  --bg: #e7ebf1;            /* fond gris-bleu plus marqué : les cartes blanches ressortent */
   --surface: #ffffff;
-  --border: #e4e7ec;
-  --text: #1a1d23;
-  --muted: #667085;
+  --surface-2: #f3f5f9;     /* fond secondaire (zébrage, en-têtes) */
+  --border: #cdd4de;        /* bordures plus visibles */
+  --border-strong: #b7c0cd;
+  --text: #0f172a;          /* texte plus contrasté */
+  --muted: #52607a;         /* texte secondaire plus lisible */
   --primary: #4f46e5;
   --primary-weak: #eef2ff;
   --green: #12805c;
@@ -15,7 +17,7 @@
   --violet: #6941c6;
   --violet-weak: #f4f0fd;
   --radius: 10px;
-  --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.1);
+  --shadow: 0 1px 2px rgba(16,24,40,.08), 0 2px 8px rgba(16,24,40,.10);
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
@@ -75,7 +77,10 @@ textarea { resize: vertical; min-height: 70px; }
 
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: .5em .6em; border-bottom: 1px solid var(--border); }
-th { font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+th { font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .03em;
+  background: var(--surface-2); border-bottom: 1px solid var(--border-strong); }
+tbody tr:nth-child(even) { background: var(--surface-2); }         /* zébrage pour la lecture */
+tbody tr:hover { background: var(--primary-weak); }               /* survol (lignes cliquables) */
 
 .md > *:first-child { margin-top: 0; }
 .md > *:last-child { margin-bottom: 0; }
@@ -86,7 +91,7 @@ th { font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-s
 
 /* App shell */
 .shell { display: flex; min-height: 100vh; }
-.sidebar { width: 210px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border);
+.sidebar { width: 210px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border-strong);
   display: flex; flex-direction: column; padding: .8rem; gap: .2rem; position: sticky; top: 0; height: 100vh; }
 .sidebar .brand { display: flex; align-items: center; gap: .5rem; font-weight: 700; padding: .4rem .5rem 1rem; font-size: 1.05rem; }
 .sidebar .logo { width: 28px; height: 28px; border-radius: 7px; background: linear-gradient(135deg, var(--primary), var(--violet));
@@ -95,7 +100,7 @@ th { font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-s
 .navlink:hover { background: #f2f4f7; text-decoration: none; }
 .navlink.active { background: var(--primary-weak); color: var(--primary); }
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.topbar { display: flex; align-items: center; gap: 1rem; padding: .7rem 1.2rem; border-bottom: 1px solid var(--border); background: var(--surface); position: sticky; top: 0; z-index: 20; }
+.topbar { display: flex; align-items: center; gap: 1rem; padding: .7rem 1.2rem; border-bottom: 1px solid var(--border-strong); background: var(--surface); position: sticky; top: 0; z-index: 20; box-shadow: 0 1px 3px rgba(16,24,40,.05); }
 .content { padding: 1.2rem; max-width: 1200px; width: 100%; margin: 0 auto; }
 
 .iconbtn { position: relative; border: none; background: transparent; font-size: 1.15rem; padding: .35rem .5rem; border-radius: 8px; }
