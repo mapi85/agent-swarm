@@ -7,6 +7,7 @@ import { fmtTokens } from '../utils.js'
 import StatusBadge from '../components/StatusBadge.vue'
 import AgentForm from '../components/AgentForm.vue'
 import TaskForm from '../components/TaskForm.vue'
+import ArtifactBrowser from '../components/ArtifactBrowser.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -81,6 +82,9 @@ async function onTaskCreated() { creatingTask.value = false; await load() }
         </tr>
       </tbody>
     </table>
+
+    <ArtifactBrowser :base="'/api/agents/' + agent.id" :key="agent.id"
+      title="Artefacts (bibliothèque, livrables, mémoire)" style="margin-top: 1rem" />
 
     <AgentForm v-if="editing" :agent="agent" @close="editing = false" @saved="onSaved" />
     <TaskForm v-if="creatingTask" :agent-id="agent.id" @close="creatingTask = false" @saved="onTaskCreated" />

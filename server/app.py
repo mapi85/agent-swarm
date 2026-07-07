@@ -17,6 +17,7 @@ from .db import engine
 from .logging_setup import setup_logging
 from .routers import (
     agents,
+    artifacts,
     auth,
     channels,
     missions,
@@ -77,6 +78,7 @@ app.include_router(stream.router)
 app.include_router(resources.router)
 app.include_router(overview.router)
 app.include_router(stats.router)
+app.include_router(artifacts.router)
 app.include_router(usage.router)
 
 

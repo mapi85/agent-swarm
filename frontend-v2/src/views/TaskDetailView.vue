@@ -8,6 +8,7 @@ import Markdown from '../components/Markdown.vue'
 import SessionStream from '../components/SessionStream.vue'
 import StaticEvents from '../components/StaticEvents.vue'
 import TaskResources from '../components/TaskResources.vue'
+import ArtifactBrowser from '../components/ArtifactBrowser.vue'
 import TaskForm from '../components/TaskForm.vue'
 
 const route = useRoute()
@@ -109,6 +110,7 @@ async function onFollowup() { creatingFollowup.value = false; await load() }
           <div v-if="!task.antecedents.length && !task.dependents.length" class="muted">Aucun lien.</div>
         </div>
         <TaskResources :task-id="task.id" :key="task.id" />
+        <ArtifactBrowser :base="'/api/tasks/' + task.id" :key="'a' + task.id" title="Artefacts de la tâche" />
       </div>
     </div>
 
