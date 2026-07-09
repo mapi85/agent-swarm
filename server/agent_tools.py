@@ -12,11 +12,11 @@ import json
 import re
 import smtplib
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from .config import get_settings
 from .db import SessionLocal
@@ -45,6 +45,62 @@ def task_workdir(task_id: int) -> Path:
     wd = get_settings().tasks_dir / str(task_id)
     wd.mkdir(parents=True, exist_ok=True)
     return wd
+
+
+_INBOX_TITLE = "📨 Ordres et messages reçus"
+
+
+async def _inbox_task(db, agent_id: int, owner_user_id: int) -> Task:
+    """Tâche persistante (par agent et par utilisateur) où se rattachent les
+    sessions déclenchées par la réception d'un message/ordre (réveil événementiel)."""
+    task = (
+        await db.execute(
+            select(Task).where(
+                Task.agent_id == agent_id,
+                Task.owner_user_id == owner_user_id,
+                Task.title == _INBOX_TITLE,
+            )
+        )
+    ).scalar_one_or_none()
+    if task is not None:
+        return task
+    task = Task(
+        agent_id=agent_id, owner_user_id=owner_user_id, title=_INBOX_TITLE,
+        description="Sessions déclenchées par la réception d'un message ou d'un ordre d'un autre "
+                    "agent. Chaque session lit les messages non lus et agit en conséquence.",
+        status="ready", created_by="self",
+    )
+    db.add(task)
+    await db.flush()
+    task_workdir(task.id)
+    return task
+
+
+async def ensure_wakeup_session(db, agent_id: int, owner_user_id: int, objective: str) -> bool:
+    """Garantit que l'agent destinataire aura une session dans la minute qui suit
+    pour traiter ce qu'on vient de lui transmettre. Ne duplique pas s'il a déjà une
+    session imminente. Renvoie True si une session a été programmée."""
+    now = datetime.now(timezone.utc)
+    soon = (
+        await db.execute(
+            select(func.count()).select_from(Session).where(
+                Session.agent_id == agent_id,
+                Session.status == "planned",
+                Session.scheduled_at <= now + timedelta(minutes=1),
+            )
+        )
+    ).scalar_one()
+    if soon:
+        return False
+    task = await _inbox_task(db, agent_id, owner_user_id)
+    number = (
+        await db.execute(
+            select(func.coalesce(func.max(Session.number), 0)).where(Session.task_id == task.id)
+        )
+    ).scalar_one() + 1
+    db.add(Session(task_id=task.id, agent_id=agent_id, number=number, status="planned",
+                   scheduled_at=now, objective=objective))
+    return True
 
 
 def agent_library_dir(agent_id: int) -> Path:
@@ -819,8 +875,19 @@ async def execute_tool(name: str, tool_input: dict, ctx: ToolContext) -> tuple[s
                     return f"[erreur] Agent inconnu ou non visible : {tool_input['agent_name']}.", True
                 db.add(Message(from_agent_id=ctx.agent_id, to_agent_id=target.id,
                                task_id=ctx.task_id, content=tool_input["content"]))
+                # Réveil événementiel : celui qui transmet planifie la session du
+                # destinataire dans la minute (sauf s'il est en pause ou a déjà une
+                # session imminente). L'agent sollicité ne reste donc jamais dormant.
+                woke = False
+                if not target.paused:
+                    woke = await ensure_wakeup_session(
+                        db, target.id, ctx.user_id,
+                        objective=(f"Tu as reçu un message de {ctx.agent_name}. Lis tes messages "
+                                   f"non lus et agis en conséquence, puis clos la session."),
+                    )
                 await db.commit()
-            return f"Message transmis à {tool_input['agent_name']}.", False
+            suffix = " Il sera traité dans la minute." if woke else ""
+            return f"Message transmis à {tool_input['agent_name']}.{suffix}", False
 
         # ---- Sollicitation de l'utilisateur ----
         if name in ("notify_user", "ask_user"):
