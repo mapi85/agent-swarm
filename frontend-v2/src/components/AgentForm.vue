@@ -13,7 +13,7 @@ const models = ref([])
 const form = ref({
   name: '', description: '', mission_prompt: '', category: '',
   provider_id: null, model: '', effort: 'high', max_iterations: 60,
-  session_token_budget: 0, max_parallel_tasks: 1, system: false,
+  session_token_budget: 0, max_parallel_tasks: 1, heartbeat_minutes: 0, system: false,
 })
 const error = ref('')
 const busy = ref(false)
@@ -32,7 +32,8 @@ onMounted(async () => {
       mission_prompt: props.agent.mission_prompt, category: props.agent.category,
       provider_id: props.agent.provider_id, model: props.agent.model, effort: props.agent.effort,
       max_iterations: props.agent.max_iterations, session_token_budget: props.agent.session_token_budget,
-      max_parallel_tasks: props.agent.max_parallel_tasks, system: props.agent.owner_user_id === null,
+      max_parallel_tasks: props.agent.max_parallel_tasks, heartbeat_minutes: props.agent.heartbeat_minutes,
+      system: props.agent.owner_user_id === null,
     })
   }
   onProvider()
@@ -103,6 +104,15 @@ async function save() {
       <div>
         <label>Tâches en parallèle</label>
         <input v-model.number="form.max_parallel_tasks" type="number" min="1" max="10" />
+      </div>
+    </div>
+
+    <div>
+      <label>Cadence de veille (minutes, 0 = aucune)</label>
+      <input v-model.number="form.heartbeat_minutes" type="number" min="0" max="10080" />
+      <div class="muted" style="font-size: .78rem; margin-top: .2rem">
+        Pour les agents récurrents / événementiels : garantit une session au moins toutes les N minutes
+        quand l'agent est inactif, même sans tâche en attente. Laisser à 0 pour les agents ponctuels.
       </div>
     </div>
 

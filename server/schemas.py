@@ -152,6 +152,7 @@ class AgentOut(BaseModel):
     max_iterations: int
     session_token_budget: int
     max_parallel_tasks: int
+    heartbeat_minutes: int
     paused: bool
     created_at: datetime
     open_tasks: int = 0
@@ -170,6 +171,7 @@ class AgentCreateIn(BaseModel):
     max_iterations: int = Field(default=60, ge=5, le=500)
     session_token_budget: int = Field(default=0, ge=0)
     max_parallel_tasks: int = Field(default=1, ge=1, le=10)
+    heartbeat_minutes: int = Field(default=0, ge=0, le=10080)  # cadence de veille (0 = off, max 7j)
     system: bool = False  # agent système (admin uniquement)
 
 
@@ -183,6 +185,7 @@ class AgentPatchIn(BaseModel):
     max_iterations: int | None = Field(default=None, ge=5, le=500)
     session_token_budget: int | None = Field(default=None, ge=0)
     max_parallel_tasks: int | None = Field(default=None, ge=1, le=10)
+    heartbeat_minutes: int | None = Field(default=None, ge=0, le=10080)
 
 
 # --------------------------------------------------------------------------

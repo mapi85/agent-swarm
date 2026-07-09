@@ -16,12 +16,52 @@ from sqlalchemy import delete, func, select
 from . import notify
 from .config import get_settings
 from .db import SessionLocal
-from .models import Agent, Event, Session, Task, TaskLink
+from .models import Agent, Event, Session, Task, TaskLink, User
 from .runtime import run_session
 
 log = logging.getLogger("swarm.scheduler")
 
 _ACTIVE_SESSION_STATES = ("planned", "running")
+_HEARTBEAT_TITLE = "🔁 Veille périodique"
+
+
+async def _task_has_active_session(db, task_id: int) -> bool:
+    return bool(
+        (
+            await db.execute(
+                select(func.count()).select_from(Session)
+                .where(Session.task_id == task_id, Session.status.in_(_ACTIVE_SESSION_STATES))
+            )
+        ).scalar_one()
+    )
+
+
+async def _heartbeat_task(db, agent: Agent) -> Task:
+    """Tâche de veille persistante d'un agent à cadence : les sessions récurrentes
+    s'y rattachent (une seule tâche, plusieurs sessions numérotées)."""
+    task = (
+        await db.execute(
+            select(Task).where(Task.agent_id == agent.id, Task.title == _HEARTBEAT_TITLE)
+        )
+    ).scalar_one_or_none()
+    if task is not None:
+        return task
+    owner = agent.owner_user_id
+    if owner is None:  # agent système → rattaché à l'admin
+        owner = (
+            await db.execute(select(func.min(User.id)).where(User.role == "admin"))
+        ).scalar()
+    task = Task(
+        agent_id=agent.id, owner_user_id=owner, title=_HEARTBEAT_TITLE,
+        description="Veille périodique : sessions récurrentes déclenchées par la cadence de l'agent. "
+                    "Chaque session vérifie l'état courant (file d'ordres, marché, messages…) "
+                    "et agit si nécessaire.",
+        status="ready", created_by="self",
+    )
+    db.add(task)
+    await db.flush()
+    (get_settings().tasks_dir / str(task.id)).mkdir(parents=True, exist_ok=True)
+    return task
 
 
 async def _dependencies_satisfied(db, task_id: int) -> bool:
@@ -84,6 +124,8 @@ async def _tick() -> None:
                 continue
             if active_by_agent[task.agent_id] >= agent.max_parallel_tasks:
                 continue
+            if await _task_has_active_session(db, task.id):
+                continue  # une session est déjà ouverte pour cette tâche (ex. continuation)
             if not await _dependencies_satisfied(db, task.id):
                 continue
             number = (
@@ -97,6 +139,39 @@ async def _tick() -> None:
             db.add(sess)
             task.status = "ready"
             active_by_agent[task.agent_id] += 1
+        await db.commit()
+
+        # 1b. Cadence de veille : un agent à heartbeat_minutes > 0, inactif et dont
+        # l'échéance est due se voit programmer une session immédiate. Garantit qu'un
+        # agent récurrent/événementiel ne reste pas dormant faute de tâche en attente.
+        now = datetime.now(timezone.utc)
+        hb_agents = (
+            await db.execute(
+                select(Agent).where(Agent.heartbeat_minutes > 0, Agent.paused.is_(False))
+            )
+        ).scalars().all()
+        for agent in hb_agents:
+            if await _agent_active_sessions(db, agent.id):
+                continue  # occupé (tâche réelle ou veille déjà en cours) → pas de doublon
+            last_end = (
+                await db.execute(
+                    select(func.max(Session.ended_at)).where(Session.agent_id == agent.id)
+                )
+            ).scalar()
+            if last_end is not None and now - last_end < timedelta(minutes=agent.heartbeat_minutes):
+                continue  # cadence pas encore échue
+            task = await _heartbeat_task(db, agent)
+            number = (
+                await db.execute(
+                    select(func.coalesce(func.max(Session.number), 0)).where(Session.task_id == task.id)
+                )
+            ).scalar_one() + 1
+            db.add(Session(
+                task_id=task.id, agent_id=agent.id, number=number, status="planned",
+                scheduled_at=now,
+                objective="Cycle de veille : vérifie l'état courant (file d'ordres, marché, messages) "
+                          "et agis si nécessaire, puis clos la session.",
+            ))
         await db.commit()
 
         # 2. Sessions planifiées échues → à lancer (dans la limite de capacité)

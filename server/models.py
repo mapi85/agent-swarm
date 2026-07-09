@@ -133,6 +133,10 @@ class Agent(Base):
     max_iterations: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
     session_token_budget: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     max_parallel_tasks: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # Cadence de veille : si > 0, le planificateur garantit une session au moins
+    # toutes les N minutes quand l'agent est inactif (agents événementiels/récurrents
+    # qui, sinon, deviennent dormants une fois leurs tâches terminées). 0 = désactivé.
+    heartbeat_minutes: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0", default=0)
     paused: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = created_at()
     # L'état d'exécution (inactif / n tâches en cours) se dérive des sessions.
