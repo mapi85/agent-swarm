@@ -20,7 +20,7 @@ from sqlalchemy import select
 
 from .config import get_settings
 from .db import SessionLocal
-from .models import Agent, Memory, Message, Notification, Provider, Resource, Service, Task, TaskLink
+from .models import Agent, Memory, Message, Notification, Provider, Resource, Service, Session, Task, TaskLink
 
 
 @dataclass
@@ -796,12 +796,20 @@ async def execute_tool(name: str, tool_input: dict, ctx: ToolContext) -> tuple[s
                 await db.flush()
                 if tool_input.get("link", True):
                     db.add(TaskLink(task_id=new_task.id, linked_task_id=ctx.task_id, kind="follow_up"))
+                # Garantir qu'une session est programmée pour traiter la tâche déléguée :
+                # on crée une session planifiée (immédiate) dédiée à cette tâche.
+                db.add(Session(task_id=new_task.id, agent_id=target_id, number=1, status="planned",
+                               scheduled_at=datetime.now(timezone.utc),
+                               objective=f"Traiter la tâche #{new_task.id} : "
+                                         f"{tool_input.get('title') or tool_input['description'][:80]}"))
+                new_task.status = "ready"
                 await db.commit()
                 tid = new_task.id
             task_workdir(tid)
             return (f"Tâche #{tid} créée pour "
-                    f"{'toi-même' if target_id == ctx.agent_id else target_name}"
-                    f"{' (liée à ta tâche courante)' if tool_input.get('link', True) else ''}."), False
+                    f"{'toi-même' if target_id == ctx.agent_id else target_name} "
+                    f"(session programmée)"
+                    f"{' — liée à ta tâche courante' if tool_input.get('link', True) else ''}."), False
 
         if name == "send_message":
             async with SessionLocal() as db:

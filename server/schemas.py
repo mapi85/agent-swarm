@@ -156,6 +156,7 @@ class AgentOut(BaseModel):
     created_at: datetime
     open_tasks: int = 0
     running_tasks: int = 0
+    next_session_at: datetime | None = None   # prochaine session planifiée (échéance)
 
 
 class AgentCreateIn(BaseModel):
@@ -217,6 +218,7 @@ class TaskOut(BaseModel):
     output_tokens: int
     created_at: datetime
     completed_at: datetime | None
+    next_session_at: datetime | None = None   # prochaine session planifiée de la tâche
 
 
 class TaskLinkOut(BaseModel):

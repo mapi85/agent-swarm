@@ -4,12 +4,12 @@ Les liens entre tâches (task_links) portent les dépendances de mission et la
 porosité : une tâche accède en lecture à toute sa chaîne d'ascendance
 (fermeture transitive, cycles refusés)."""
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
 from ..db import get_db
-from ..models import Agent, Task, TaskLink, User
+from ..models import Agent, Session, Task, TaskLink, User
 from ..routers_common import ancestor_ids
 from ..schemas import TaskCreateIn, TaskDetailOut, TaskLinkIn, TaskLinkOut, TaskOut
 from ..security import ensure_owner, get_current_user
@@ -80,7 +80,23 @@ async def list_tasks(
         query = query.where(Task.agent_id == agent_id)
     if mission_id:
         query = query.where(Task.mission_id == mission_id)
-    return (await db.execute(query)).scalars().all()
+    tasks = (await db.execute(query)).scalars().all()
+    # Prochaine session planifiée par tâche (une requête groupée, pas de N+1)
+    ids = [t.id for t in tasks]
+    nxt: dict = {}
+    if ids:
+        rows = await db.execute(
+            select(Session.task_id, func.min(Session.scheduled_at))
+            .where(Session.task_id.in_(ids), Session.status == "planned")
+            .group_by(Session.task_id)
+        )
+        nxt = {tid: at for tid, at in rows}
+    out = []
+    for t in tasks:
+        o = TaskOut.model_validate(t)
+        o.next_session_at = nxt.get(t.id)
+        out.append(o)
+    return out
 
 
 @router.get("/{task_id}", response_model=TaskDetailOut)

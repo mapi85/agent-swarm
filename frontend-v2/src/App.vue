@@ -14,8 +14,8 @@ const showShell = computed(() => auth.isAuthenticated && route.path !== '/login'
 const nav = computed(() => {
   const items = [
     { to: '/', label: 'Tableau de bord', icon: '📊' },
-    { to: '/agents', label: 'Agents', icon: '🤖' },
     { to: '/tasks', label: 'Tâches', icon: '📋' },
+    { to: '/agents', label: 'Agents', icon: '🤖' },
     { to: '/missions', label: 'Missions', icon: '🎯' },
     { to: '/settings', label: 'Réglages', icon: '⚙️' },
   ]

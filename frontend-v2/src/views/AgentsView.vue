@@ -2,6 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api.js'
+import { fmtDate } from '../utils.js'
 import AgentForm from '../components/AgentForm.vue'
 
 const router = useRouter()
@@ -18,10 +19,18 @@ const themes = computed(() =>
 
 const filtered = computed(() => {
   const q = search.value.toLowerCase()
-  return agents.value.filter((a) =>
-    (!theme.value || a.category === theme.value) &&
-    (!q || a.name.toLowerCase().includes(q) || (a.description || '').toLowerCase().includes(q) ||
-      (a.category || '').toLowerCase().includes(q)))
+  return agents.value
+    .filter((a) =>
+      (!theme.value || a.category === theme.value) &&
+      (!q || a.name.toLowerCase().includes(q) || (a.description || '').toLowerCase().includes(q) ||
+        (a.category || '').toLowerCase().includes(q)))
+    // Tri par prochaine exécution : échéance la plus proche d'abord, sans session à la fin
+    .sort((a, b) => {
+      if (a.next_session_at && b.next_session_at) return a.next_session_at.localeCompare(b.next_session_at)
+      if (a.next_session_at) return -1
+      if (b.next_session_at) return 1
+      return a.name.localeCompare(b.name)
+    })
 })
 
 async function onSaved() { showForm.value = false; await load() }
@@ -56,6 +65,9 @@ async function onSaved() { showForm.value = false; await load() }
         <span v-if="a.running_tasks" class="badge blue">{{ a.running_tasks }} en cours</span>
         <span v-if="a.open_tasks" class="badge gray">{{ a.open_tasks }} en attente</span>
         <span class="muted">{{ a.model }}</span>
+      </div>
+      <div class="muted" style="font-size: .76rem; margin-top: .3rem">
+        {{ a.next_session_at ? '⏱ Prochaine session : ' + fmtDate(a.next_session_at) : (a.paused ? '⏸ En pause' : '— aucune session planifiée') }}
       </div>
     </div>
   </div>

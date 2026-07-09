@@ -2,7 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api.js'
-import { fmtTokens } from '../utils.js'
+import { fmtTokens, fmtDate } from '../utils.js'
 import StatusBadge from '../components/StatusBadge.vue'
 import TaskForm from '../components/TaskForm.vue'
 
@@ -11,7 +11,8 @@ const tasks = ref([])
 const agents = ref({})     // id -> nom
 const agentCat = ref({})   // id -> thème (catégorie)
 const statusFilter = ref('')
-const theme = ref('')      // filtre par thème ; '' = tous
+const theme = ref('')            // filtre par thème ; '' = tous
+const onlyUpcoming = ref(true)   // par défaut : uniquement les tâches avec une session à venir
 const creating = ref(false)
 
 async function load() {
@@ -34,8 +35,16 @@ function onLeave() { hover.value = null }
 // Thèmes présents parmi les agents des tâches affichées
 const themes = computed(() =>
   [...new Set(tasks.value.map((t) => agentCat.value[t.agent_id]).filter(Boolean))].sort())
-const visibleTasks = computed(() =>
-  theme.value ? tasks.value.filter((t) => agentCat.value[t.agent_id] === theme.value) : tasks.value)
+const visibleTasks = computed(() => {
+  let list = tasks.value
+  if (theme.value) list = list.filter((t) => agentCat.value[t.agent_id] === theme.value)
+  if (onlyUpcoming.value) {
+    // Uniquement celles avec une session à venir, de la plus proche à la plus lointaine
+    list = list.filter((t) => t.next_session_at)
+      .slice().sort((a, b) => a.next_session_at.localeCompare(b.next_session_at))
+  }
+  return list
+})
 
 async function onCreated() { creating.value = false; await load() }
 </script>
@@ -50,16 +59,26 @@ async function onCreated() { creating.value = false; await load() }
       @click="statusFilter = s; load()">{{ statusLabel[s] }}</button>
   </div>
   <!-- Filtres par thème : couleur dédiée (teal), distincte des filtres de statut -->
-  <div v-if="themes.length" class="row wrap" style="gap: .35rem; margin-bottom: 1rem">
-    <button class="sm themebtn" :class="{ on: !theme }" @click="theme = ''">Tous thèmes</button>
-    <button v-for="t in themes" :key="t" class="sm themebtn" :class="{ on: theme === t }" @click="theme = t">
-      🏷 {{ t }}
-    </button>
+  <div class="row wrap spread" style="gap: .35rem; margin-bottom: 1rem; align-items: center">
+    <div class="row wrap" style="gap: .35rem">
+      <template v-if="themes.length">
+        <button class="sm themebtn" :class="{ on: !theme }" @click="theme = ''">Tous thèmes</button>
+        <button v-for="t in themes" :key="t" class="sm themebtn" :class="{ on: theme === t }" @click="theme = t">
+          🏷 {{ t }}
+        </button>
+      </template>
+    </div>
+    <label class="row" style="width: auto; gap: .4rem; font-size: .85rem; margin: 0">
+      <input type="checkbox" v-model="onlyUpcoming" style="width: auto" />
+      À venir seulement
+    </label>
   </div>
 
-  <div v-if="!visibleTasks.length" class="card pad empty">Aucune tâche{{ theme ? ' pour ce thème' : '' }}.</div>
+  <div v-if="!visibleTasks.length" class="card pad empty">
+    {{ onlyUpcoming ? 'Aucune tâche avec une session à venir.' : 'Aucune tâche' + (theme ? ' pour ce thème' : '') + '.' }}
+  </div>
   <table v-else class="card" style="overflow: hidden">
-    <thead><tr><th>#</th><th>Titre</th><th>Agent</th><th>Thème</th><th>Statut</th><th>Tokens</th></tr></thead>
+    <thead><tr><th>#</th><th>Titre</th><th>Agent</th><th>Thème</th><th>Statut</th><th>Prochaine session</th><th>Tokens</th></tr></thead>
     <tbody>
       <tr v-for="t in visibleTasks" :key="t.id" style="cursor: pointer"
         @click="router.push('/tasks/' + t.id)" @mouseenter="onEnter($event, t)" @mouseleave="onLeave">
@@ -68,6 +87,7 @@ async function onCreated() { creating.value = false; await load() }
         <td class="muted">{{ agents[t.agent_id] || '#' + t.agent_id }}</td>
         <td><span v-if="agentCat[t.agent_id]" class="badge teal" style="font-size: .72rem">🏷 {{ agentCat[t.agent_id] }}</span></td>
         <td><StatusBadge :status="t.status" /></td>
+        <td><span v-if="t.next_session_at" class="badge blue" style="font-size: .72rem">⏱ {{ fmtDate(t.next_session_at) }}</span><span v-else class="muted">—</span></td>
         <td class="muted">{{ fmtTokens(t.input_tokens + t.output_tokens) }}</td>
       </tr>
     </tbody>

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
 from ..db import get_db
-from ..models import Agent, Provider, Task, User
+from ..models import Agent, Provider, Session, Task, User
 from ..schemas import AgentCreateIn, AgentOut, AgentPatchIn
 from ..security import get_current_user, require_admin
 
@@ -48,6 +48,12 @@ async def _to_out(db: AsyncSession, agent: Agent) -> AgentOut:
     )
     out.running_tasks = counts.pop("in_progress", 0)
     out.open_tasks = sum(counts.values())
+    out.next_session_at = (
+        await db.execute(
+            select(func.min(Session.scheduled_at))
+            .where(Session.agent_id == agent.id, Session.status == "planned")
+        )
+    ).scalar()
     return out
 
 
