@@ -20,7 +20,7 @@ from .agent_tools import ToolContext, agent_library_dir, agent_memory_dir, task_
 from .config import get_settings
 from .db import SessionLocal
 from .llm import block_get, block_type
-from .models import Agent, Event, Memory, Message, Provider, Session, Task, TaskLink, User
+from .models import Agent, Event, Memory, Message, Notification, Provider, Session, Task, TaskLink, User
 from .routers_common import ancestor_ids  # fermeture transitive partagée
 
 log = logging.getLogger("swarm.runtime")
