@@ -204,6 +204,18 @@ class TaskCreateIn(BaseModel):
     links: list[TaskLinkIn] = Field(default_factory=list)
 
 
+class TaskRelanceIn(BaseModel):
+    """Relance manuelle d'une tâche : crée une session planifiée immédiate.
+    `note` est injectée comme user_note dans le prompt de la prochaine session."""
+    note: str | None = Field(default=None, max_length=4000)
+
+
+class TaskPatchIn(BaseModel):
+    """Réorientation d'une tâche : modifie sa spécification de travail."""
+    title: str | None = Field(default=None, max_length=300)
+    description: str | None = Field(default=None, min_length=1)
+
+
 class TaskOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -219,6 +231,7 @@ class TaskOut(BaseModel):
     created_by_agent_id: int | None
     input_tokens: int
     output_tokens: int
+    consecutive_stalls: int
     created_at: datetime
     completed_at: datetime | None
     next_session_at: datetime | None = None   # prochaine session planifiée de la tâche

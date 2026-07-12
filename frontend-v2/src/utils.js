@@ -51,6 +51,7 @@ export const TASK_STATUS = {
   ready: { label: 'Prête', cls: 'blue' },
   in_progress: { label: 'En cours', cls: 'blue' },
   waiting_user: { label: 'Attend une réponse', cls: 'violet' },
+  stalled: { label: 'Bloquée', cls: 'red' },
   done: { label: 'Terminée', cls: 'green' },
   failed: { label: 'Échec', cls: 'red' },
   cancelled: { label: 'Annulée', cls: 'gray' },

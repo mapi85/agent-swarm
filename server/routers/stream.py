@@ -84,7 +84,7 @@ async def stream_overview(request: Request, user: User = Depends(get_current_use
         open_tasks = (
             await db.execute(
                 select(func.count()).select_from(Task).where(
-                    Task.status.in_(("pending", "ready", "in_progress", "waiting_user")),
+                    Task.status.in_(("pending", "ready", "in_progress", "waiting_user", "stalled")),
                     *([] if user.role == "admin" else [scope_task]),
                 )
             )

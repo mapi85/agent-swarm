@@ -182,6 +182,9 @@ class Task(Base):
     created_by_agent_id: Mapped[int | None] = mapped_column(ForeignKey("agents.id"))
     input_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     output_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    # Nb de sessions consécutives closes sans progrès (ni next_objective, ni done,
+    # ni ask_user). Au-delà du seuil → 'stalled' (bac À traiter). Reset sur vrai progrès.
+    consecutive_stalls: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0", default=0)
     created_at: Mapped[datetime] = created_at()
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

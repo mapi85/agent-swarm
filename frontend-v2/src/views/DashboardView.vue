@@ -4,11 +4,14 @@ import { useRouter } from 'vue-router'
 import { api, stream } from '../api.js'
 import { fmtTokens, fmtDate } from '../utils.js'
 import Markdown from '../components/Markdown.vue'
+import Modal from '../components/Modal.vue'
 
 const router = useRouter()
 const ov = ref({ agents: 0, open_tasks: 0, running_sessions: 0, planned_sessions: 0, running_missions: 0, open_notifications: 0 })
-const questions = ref([])
-const replies = ref({})
+const attention = ref({ questions: [], stalled: [] })
+const replies = ref({})        // réponses inline aux questions (key = notif_id)
+const relanceTarget = ref(null) // tâche stalled en cours de relance (pour le modal)
+const relanceNote = ref('')
 const agents = ref([])
 const tok = ref(null)
 const tl = ref(null)
@@ -64,14 +67,28 @@ function block(s) {
 // --- Histogramme tokens ---
 const maxBar = computed(() => tok.value ? Math.max(1, ...tok.value.by_time.map((b) => b.t)) : 1)
 
-async function loadQuestions() {
-  try { questions.value = await api.get('/api/notifications?status=open&type=question') } catch { /* */ }
+async function loadAttention() {
+  try { attention.value = await api.get('/api/tasks/attention') } catch { /* */ }
 }
-async function answer(n) {
-  const response = (replies.value[n.id] || '').trim()
+const attentionCount = computed(() => attention.value.questions.length + attention.value.stalled.length)
+
+async function answer(q) {
+  const response = (replies.value[q.notif_id] || '').trim()
   if (!response) return
-  await api.post(`/api/notifications/${n.id}/answer`, { response })
-  await loadQuestions()
+  await api.post(`/api/notifications/${q.notif_id}/answer`, { response })
+  await loadAttention()
+}
+function openRelance(item) { relanceTarget.value = item; relanceNote.value = '' }
+async function confirmRelance() {
+  if (!relanceTarget.value) return
+  await api.post(`/api/tasks/${relanceTarget.value.task_id}/relance`, { note: relanceNote.value || null })
+  relanceTarget.value = null
+  relanceNote.value = ''
+  await loadAttention()
+}
+async function abandon(item) {
+  await api.post(`/api/tasks/${item.task_id}/cancel`)
+  await loadAttention()
 }
 async function loadTokens() { tok.value = await api.get('/api/stats/tokens?period=' + period.value) }
 
@@ -79,7 +96,7 @@ onMounted(async () => {
   try { ov.value = await api.get('/api/overview') } catch { /* */ }
   try { agents.value = await api.get('/api/agents') } catch { /* */ }
   try { tl.value = await api.get('/api/stats/timeline') } catch { /* */ }
-  loadTokens(); loadQuestions()
+  loadTokens(); loadAttention()
   stop = stream('/api/stream/overview', (ev, data) => {
     if (ev === 'overview') {
       ov.value.open_tasks = data.open_tasks
@@ -94,19 +111,54 @@ onUnmounted(() => { if (stop) stop() })
 <template>
   <h1>Tableau de bord</h1>
 
-  <!-- Questions en attente (en haut ; masqué s'il n'y en a pas) -->
-  <template v-if="questions.length">
-    <h2>❓ Questions en attente</h2>
+  <!-- Bac « À traiter » : questions (réponse inline) + tâches bloquées (relance/abandon) -->
+  <template v-if="attentionCount">
+    <h2>🚨 À traiter ({{ attentionCount }})</h2>
     <div class="stack" style="margin-bottom: 1.2rem">
-      <div v-for="n in questions" :key="n.id" class="card pad">
-        <div class="muted" style="font-size: .8rem">Tâche #{{ n.task_id }}</div>
-        <Markdown :text="n.content" style="margin: .3rem 0" />
-        <textarea v-model="replies[n.id]" placeholder="Ta réponse… (Ctrl+Entrée)" rows="2"
-          @keydown.ctrl.enter="answer(n)"></textarea>
-        <button class="primary sm" style="margin-top: .4rem" @click="answer(n)">Répondre</button>
+      <!-- Questions explicites des agents -->
+      <div v-for="q in attention.questions" :key="'q'+q.notif_id" class="card pad">
+        <div class="row spread">
+          <div class="muted" style="font-size: .8rem">{{ q.agent_name }} · tâche #{{ q.task_id }}</div>
+          <span class="badge violet" style="font-size: .72rem">question</span>
+        </div>
+        <Markdown :text="q.content" style="margin: .3rem 0" />
+        <textarea v-model="replies[q.notif_id]" placeholder="Ta réponse… (Ctrl+Entrée)" rows="2"
+          @keydown.ctrl.enter="answer(q)"></textarea>
+        <div class="row" style="justify-content: flex-end; margin-top: .4rem">
+          <button class="primary sm" @click="answer(q)">Répondre</button>
+        </div>
+      </div>
+      <!-- Tâches bloquées (chaîne brisée / agent qui n'avance plus) -->
+      <div v-for="s in attention.stalled" :key="'s'+s.task_id" class="card pad">
+        <div class="row spread">
+          <div>
+            <strong>{{ s.agent_name }}</strong>
+            <span class="muted" style="font-size: .82rem"> · tâche #{{ s.task_id }} — {{ s.title }}</span>
+          </div>
+          <span class="badge red" style="font-size: .72rem">bloquée ({{ s.consecutive_stalls }}×)</span>
+        </div>
+        <div class="muted" style="font-size: .82rem; margin: .3rem 0">
+          L'agent n'avance plus. Relance-le (avec un commentaire pour guider les prochaines sessions) ou abandonne.
+        </div>
+        <div class="row" style="justify-content: flex-end; gap: .4rem">
+          <button class="ghost sm" @click="abandon(s)">Abandonner</button>
+          <button class="primary sm" @click="openRelance(s)">Relancer…</button>
+        </div>
       </div>
     </div>
   </template>
+
+  <!-- Modal de relance avec commentaire -->
+  <Modal v-if="relanceTarget" :title="`Relancer ${relanceTarget.agent_name} (#${relanceTarget.task_id})`" @close="relanceTarget = null">
+    <p class="muted" style="font-size: .85rem">
+      Ton commentaire sera transmis à l'agent comme note de session pour guider les prochaines exécutions.
+    </p>
+    <textarea v-model="relanceNote" rows="4" placeholder="Ex. : reprendre la surveillance 4h ; vérifier X d'abord…"></textarea>
+    <div class="row" style="justify-content: flex-end; margin-top: 1rem; gap: .4rem">
+      <button class="ghost" @click="relanceTarget = null">Annuler</button>
+      <button class="primary" @click="confirmRelance()">Lancer la session</button>
+    </div>
+  </Modal>
 
   <!-- KPIs -->
   <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(150px, 1fr))">

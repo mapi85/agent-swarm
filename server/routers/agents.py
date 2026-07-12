@@ -14,7 +14,7 @@ from ..security import get_current_user, require_admin
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
-OPEN_STATUSES = ("pending", "ready", "waiting_user")
+OPEN_STATUSES = ("pending", "ready", "waiting_user", "stalled")
 
 
 async def _get_visible(db: AsyncSession, user: User, agent_id: int) -> Agent:

@@ -25,6 +25,10 @@ from .routers_common import ancestor_ids  # fermeture transitive partagée
 
 log = logging.getLogger("swarm.runtime")
 
+# Au-delà de ce nombre de sessions consécutives sans progrès (ni next_objective,
+# ni done, ni ask_user), une tâche passe en 'stalled' plutôt que de boucler à vide.
+STALL_THRESHOLD = 3
+
 # Registre des sessions en cours : session_id -> {"cancel": bool}
 RUNNING: dict[int, dict] = {}
 
@@ -538,6 +542,23 @@ async def _close_session(db, session_id, task_id, agent_id, user_id, objective, 
     session.input_tokens = total_in
     session.output_tokens = total_out
 
+    # Une question explicite (ask_user) a-t-elle été posée durant cette session ?
+    asked_question = (
+        await db.execute(
+            select(Notification.id).where(
+                Notification.session_id == session_id,
+                Notification.type == "question",
+                Notification.status == "open",
+            ).limit(1)
+        )
+    ).first() is not None
+
+    def _notify_delegator(content: str) -> None:
+        """Handoff panne/fin : prévenir l'agent qui a confié la tâche."""
+        if task.created_by == "agent" and task.created_by_agent_id and task.created_by_agent_id != agent_id:
+            db.add(Message(from_agent_id=agent_id, to_agent_id=task.created_by_agent_id, task_id=task_id,
+                           content=content))
+
     next_id = None
     if rate_retry_id:
         task.status = "pending"  # reprise planifiée
@@ -545,13 +566,14 @@ async def _close_session(db, session_id, task_id, agent_id, user_id, objective, 
         task.status = "done"
         task.result = task_result[:4000]
         task.completed_at = datetime.now(timezone.utc)
-        # handoff : prévenir l'agent qui a confié la tâche
-        if task.created_by == "agent" and task.created_by_agent_id and task.created_by_agent_id != agent_id:
-            db.add(Message(from_agent_id=agent_id, to_agent_id=task.created_by_agent_id, task_id=task_id,
-                           content=f"Ta tâche déléguée #{task_id} « {task.title or task.description[:60]} » est "
-                                   f"terminée. Résultat : {task_result[:1500]}"))
+        task.consecutive_stalls = 0
+        _notify_delegator(
+            f"Ta tâche déléguée #{task_id} « {task.title or task.description[:60]} » est "
+            f"terminée. Résultat : {task_result[:1500]}"
+        )
     elif finished and not task_completed:
-        # ask_user (pas de next_objective) → attente ; sinon continuation planifiée
+        # Soit continuation explicite (next_objective), soit question (ask_user),
+        # soit — défaut à éliminer — une clôture sans aucune des deux.
         next_objective = (finish_input.get("next_objective") or "").strip()
         if next_objective:
             minutes = max(int(finish_input.get("next_run_minutes") or 60), 1)
@@ -563,11 +585,59 @@ async def _close_session(db, session_id, task_id, agent_id, user_id, objective, 
             await db.flush()
             next_id = cont.id
             task.status = "pending"
-        else:
+            task.consecutive_stalls = 0
+        elif asked_question:
+            # L'agent a explicitement sollicité l'utilisateur : attente légitime et visible.
             task.status = "waiting_user"
+            task.consecutive_stalls = 0
+        else:
+            # Impasse silencieuse (défaut à éliminer) : on auto-continue pour ne jamais
+            # perdre la tâche ; au-delà du seuil on signale (stalled) plutôt que de boucler.
+            task.consecutive_stalls = (task.consecutive_stalls or 0) + 1
+            if task.consecutive_stalls < STALL_THRESHOLD:
+                cadence_agent = await db.get(Agent, agent_id)
+                minutes = cadence_agent.heartbeat_minutes if (
+                    cadence_agent and cadence_agent.heartbeat_minutes and cadence_agent.heartbeat_minutes > 0
+                ) else 60
+                cont = Session(
+                    task_id=task_id, agent_id=agent_id,
+                    number=await _next_session_number(db, task_id),
+                    objective=("⚠️ La session précédente a été close sans replanification explicite. "
+                               "Reprends la tâche : si elle est finie, appelle finish_session avec "
+                               "task_completed=true ; sinon fournis un next_objective, ou demande à "
+                               "l'utilisateur via ask_user.\n"
+                               f"Objectif précédent : {objective}"),
+                    status="planned",
+                    scheduled_at=datetime.now(timezone.utc) + timedelta(minutes=minutes),
+                )
+                db.add(cont)
+                await db.flush()
+                next_id = cont.id
+                task.status = "pending"
+            else:
+                task.status = "stalled"
+                stalled_agent = await db.get(Agent, agent_id)
+                db.add(Notification(
+                    user_id=user_id, agent_id=agent_id, task_id=task_id, session_id=session_id,
+                    type="alert", status="open",
+                    content=(f"L'agent {stalled_agent.name if stalled_agent else '#' + str(agent_id)} n'avance plus "
+                             f"sur la tâche #{task_id} « {task.title or task.description[:60]} » "
+                             f"(après {task.consecutive_stalls} sessions sans progrès). "
+                             f"Tu peux la relancer (avec un commentaire) ou la réorienter."),
+                ))
+                _notify_delegator(
+                    f"⚠️ Ta tâche déléguée #{task_id} « {task.title or task.description[:60]} » est bloquée "
+                    f"(stalled) : l'agent n'avance plus après {task.consecutive_stalls} sessions. "
+                    f"Dernier rapport : {report[:1000]}"
+                )
     else:
+        # Échec / interruption technique.
         task.status = "failed"
         task.result = report[:4000]
+        _notify_delegator(
+            f"⚠️ Ta tâche déléguée #{task_id} « {task.title or task.description[:60]} » a échoué "
+            f"(erreur : {(error or 'inconnue')[:200]}). Dernier rapport : {report[:1000]}"
+        )
 
     # Mémoire libre : journal de session
     try:

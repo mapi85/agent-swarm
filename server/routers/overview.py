@@ -25,7 +25,7 @@ async def overview(user: User = Depends(get_current_user), db: AsyncSession = De
     agents = await count(agents_q)
     open_tasks = await count(_scope(
         select(func.count()).select_from(Task).where(
-            Task.status.in_(("pending", "ready", "in_progress", "waiting_user"))), Task.owner_user_id, user))
+            Task.status.in_(("pending", "ready", "in_progress", "waiting_user", "stalled"))), Task.owner_user_id, user))
     running = await count(
         select(func.count()).select_from(Session).join(Task, Task.id == Session.task_id).where(
             Session.status == "running",

@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, text
 
 from .config import get_settings
 
-OPEN = ("pending", "ready", "in_progress", "waiting_user")
+OPEN = ("pending", "ready", "in_progress", "waiting_user", "stalled")
 
 
 def _files(d: Path) -> int:

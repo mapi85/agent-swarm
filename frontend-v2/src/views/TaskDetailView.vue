@@ -10,6 +10,7 @@ import StaticEvents from '../components/StaticEvents.vue'
 import TaskResources from '../components/TaskResources.vue'
 import ArtifactBrowser from '../components/ArtifactBrowser.vue'
 import TaskForm from '../components/TaskForm.vue'
+import Modal from '../components/Modal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -17,6 +18,10 @@ const task = ref(null)
 const sessions = ref([])
 const selectedSession = ref(null)
 const creatingFollowup = ref(false)
+const relanceOpen = ref(false)
+const relanceNote = ref('')
+const redirectOpen = ref(false)
+const redirectDesc = ref('')
 
 async function load() {
   const id = route.params.id
@@ -30,11 +35,26 @@ async function load() {
 onMounted(load)
 
 const selectedRunning = computed(() => selectedSession.value?.status === 'running')
+// Une tâche non terminée peut être relancée / réorientée manuellement.
+const actionable = computed(() => task.value && !['done', 'cancelled'].includes(task.value.status))
 
 async function runNow(s) { await api.post(`/api/sessions/${s.id}/run-now`, {}); await load() }
 async function interrupt(s) { await api.post(`/api/sessions/${s.id}/interrupt`); await load() }
 async function retry(s) { await api.post(`/api/sessions/${s.id}/retry`); await load() }
 async function onFollowup() { creatingFollowup.value = false; await load() }
+
+function openRelance() { relanceNote.value = ''; relanceOpen.value = true }
+async function confirmRelance() {
+  await api.post(`/api/tasks/${route.params.id}/relance`, { note: relanceNote.value || null })
+  relanceOpen.value = false
+  await load()
+}
+function openRedirect() { redirectDesc.value = task.value?.description || ''; redirectOpen.value = true }
+async function confirmRedirect() {
+  await api.patch(`/api/tasks/${route.params.id}`, { description: redirectDesc.value })
+  redirectOpen.value = false
+  await load()
+}
 </script>
 
 <template>
@@ -42,8 +62,10 @@ async function onFollowup() { creatingFollowup.value = false; await load() }
     <div class="row"><router-link to="/tasks" class="muted">← Tâches</router-link></div>
     <div class="row spread">
       <h1 style="margin: .3rem 0">#{{ task.id }} {{ task.title }}</h1>
-      <div class="row">
+      <div class="row" style="gap: .4rem">
         <StatusBadge :status="task.status" />
+        <button v-if="actionable" class="sm" @click="openRedirect">↻ Réorienter</button>
+        <button v-if="actionable" class="sm primary" @click="openRelance">▶ Relancer…</button>
         <button class="sm" @click="creatingFollowup = true">+ Tâche de suite</button>
       </div>
     </div>
@@ -116,5 +138,28 @@ async function onFollowup() { creatingFollowup.value = false; await load() }
 
     <TaskForm v-if="creatingFollowup" :agent-id="task.agent_id" :link-task-id="task.id"
       @close="creatingFollowup = false" @saved="onFollowup" />
+
+    <Modal v-if="relanceOpen" :title="`Relancer la tâche #${task.id}`" @close="relanceOpen = false">
+      <p class="muted" style="font-size: .85rem">
+        Une nouvelle session est créée immédiatement. Ton commentaire guidera l'agent pour les prochaines exécutions.
+      </p>
+      <textarea v-model="relanceNote" rows="4" placeholder="Ex. : reprendre la surveillance ; vérifier X d'abord…"></textarea>
+      <div class="row" style="justify-content: flex-end; margin-top: 1rem; gap: .4rem">
+        <button class="ghost" @click="relanceOpen = false">Annuler</button>
+        <button class="primary" @click="confirmRelance">Lancer la session</button>
+      </div>
+    </Modal>
+
+    <Modal v-if="redirectOpen" :title="`Réorienter la tâche #${task.id}`" @close="redirectOpen = false">
+      <p class="muted" style="font-size: .85rem">
+        Modifie la spécification de la tâche. L'agent prendra en compte la nouvelle description à sa prochaine session.
+      </p>
+      <label>Description / objectif de la tâche</label>
+      <textarea v-model="redirectDesc" rows="5"></textarea>
+      <div class="row" style="justify-content: flex-end; margin-top: 1rem; gap: .4rem">
+        <button class="ghost" @click="redirectOpen = false">Annuler</button>
+        <button class="primary" @click="confirmRedirect">Enregistrer</button>
+      </div>
+    </Modal>
   </div>
 </template>

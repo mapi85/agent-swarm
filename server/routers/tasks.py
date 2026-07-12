@@ -3,15 +3,17 @@
 Les liens entre tâches (task_links) portent les dépendances de mission et la
 porosité : une tâche accède en lecture à toute sa chaîne d'ascendance
 (fermeture transitive, cycles refusés)."""
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
 from ..db import get_db
-from ..models import Agent, Session, Task, TaskLink, User
+from ..models import Agent, Notification, Session, Task, TaskLink, User
 from ..routers_common import ancestor_ids
-from ..schemas import TaskCreateIn, TaskDetailOut, TaskLinkIn, TaskLinkOut, TaskOut
+from ..schemas import TaskCreateIn, TaskDetailOut, TaskLinkIn, TaskLinkOut, TaskOut, TaskPatchIn, TaskRelanceIn
 from ..security import ensure_owner, get_current_user
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -99,6 +101,46 @@ async def list_tasks(
     return out
 
 
+@router.get("/attention")
+async def attention(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Bac « À traiter » : tâches qui nécessitent l'utilisateur.
+    - questions : tâches en 'waiting_user' avec leur notification question ouverte
+    - stalled   : tâches bloquées (auto-continuations sans progrès)
+    (Déclarée avant /{task_id} pour ne pas être capturée par la route paramétrée.)"""
+    scope = [] if user.role == "admin" else [Task.owner_user_id == user.id]
+
+    qrows = (
+        await db.execute(
+            select(Task, Notification, Agent)
+            .join(Notification, Notification.task_id == Task.id)
+            .join(Agent, Agent.id == Task.agent_id)
+            .where(
+                Task.status == "waiting_user",
+                Notification.type == "question", Notification.status == "open",
+                *scope,
+            ).order_by(Notification.id.desc())
+        )
+    ).all()
+    questions = [
+        {"notif_id": n.id, "task_id": t.id, "title": t.title or t.description[:80],
+         "agent_id": a.id, "agent_name": a.name, "content": n.content}
+        for (t, n, a) in qrows
+    ]
+
+    srows = (
+        await db.execute(
+            select(Task, Agent).join(Agent, Agent.id == Task.agent_id)
+            .where(Task.status == "stalled", *scope).order_by(Task.id.desc())
+        )
+    ).all()
+    stalled = [
+        {"task_id": t.id, "title": t.title or t.description[:80],
+         "agent_id": a.id, "agent_name": a.name, "consecutive_stalls": t.consecutive_stalls}
+        for (t, a) in srows
+    ]
+    return {"questions": questions, "stalled": stalled}
+
+
 @router.get("/{task_id}", response_model=TaskDetailOut)
 async def get_task(task_id: int, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     task = await _get_visible(db, user, task_id)
@@ -171,8 +213,69 @@ async def cancel_task(
     task_id: int, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ):
     task = await _get_visible(db, user, task_id)
-    if task.status not in ("pending", "ready", "waiting_user"):
+    if task.status not in ("pending", "ready", "waiting_user", "stalled"):
         raise HTTPException(status_code=400, detail="Seule une tâche non démarrée peut être annulée")
     task.status = "cancelled"
     await db.commit()
     return task
+
+
+@router.post("/{task_id}/relance", response_model=TaskOut)
+async def relance_task(
+    task_id: int,
+    body: TaskRelanceIn,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Relance manuelle d'une tâche : crée une session planifiée immédiate.
+    `body.note` devient le `user_note` de la session (injecté dans le prompt de
+    l'agent), pour préciser ce qu'il faut faire aux prochaines sessions."""
+    task = await _get_visible(db, user, task_id)
+    if task.status in ("done", "cancelled"):
+        raise HTTPException(status_code=400, detail="Une tâche terminée ne se relance pas")
+    last_obj = (
+        await db.execute(
+            select(Session.objective).where(Session.task_id == task_id)
+            .order_by(Session.number.desc()).limit(1)
+        )
+    ).scalar()
+    objective = f"Reprise manuelle de la tâche #{task_id} : {task.title or task.description[:80]}"
+    if last_obj:
+        objective += f"\nObjectif précédent : {last_obj}"
+    number = (
+        await db.execute(
+            select(func.coalesce(func.max(Session.number), 0)).where(Session.task_id == task_id)
+        )
+    ).scalar_one() + 1
+    db.add(Session(
+        task_id=task_id, agent_id=task.agent_id, number=number, status="planned",
+        scheduled_at=datetime.now(timezone.utc), objective=objective, user_note=body.note,
+    ))
+    task.status = "pending"
+    task.consecutive_stalls = 0
+    await db.commit()
+    out = TaskOut.model_validate(task)
+    out.next_session_at = datetime.now(timezone.utc)
+    return out
+
+
+@router.patch("/{task_id}", response_model=TaskDetailOut)
+async def patch_task(
+    task_id: int,
+    body: TaskPatchIn,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Réorientation d'une tâche : modifie sa spécification de travail (titre,
+    description). Ne change pas le statut ni l'agent."""
+    task = await _get_visible(db, user, task_id)
+    ensure_owner(user, task.owner_user_id)
+    fields = body.model_dump(exclude_unset=True)
+    if not fields:
+        raise HTTPException(status_code=400, detail="Rien à modifier")
+    for key, value in fields.items():
+        setattr(task, key, value)
+    await db.commit()
+    out = TaskDetailOut.model_validate(task)
+    out.antecedents, out.dependents = await _links_out(db, task_id)
+    return out
