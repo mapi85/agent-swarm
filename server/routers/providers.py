@@ -4,6 +4,7 @@ Les clés API sont chiffrées en base et jamais renvoyées."""
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..crypto import decrypt_secret, encrypt_secret
@@ -81,10 +82,21 @@ async def delete_provider(provider_id: int, db: AsyncSession = Depends(get_db)):
     provider = await _get_or_404(db, provider_id)
     if provider.is_default:
         raise HTTPException(status_code=400, detail="Définir d'abord un autre provider par défaut")
-    # Les agents rattachés basculent sur le provider par défaut (provider_id NULL)
+    # Les agents rattachés basculent sur le provider par défaut (provider_id NULL).
+    # Les sessions et lignes de comptabilité (token_usage) voient leur provider_id
+    # mis à NULL par la FK (ondelete SET NULL) — l'historique et les compteurs sont
+    # préservés, seul le lien vers le provider supprimé disparaît.
     await db.execute(update(Agent).where(Agent.provider_id == provider_id).values(provider_id=None))
     await db.delete(provider)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Ce provider est encore référencé (sessions ou comptabilité). "
+                   "Supprimez d'abord l'historique lié ou réessayez.",
+        )
 
 
 async def _set_default(db: AsyncSession, provider: Provider) -> None:
