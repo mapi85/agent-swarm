@@ -3,12 +3,12 @@ l'utilisateur valide, le plan se matérialise en tâches confiées aux agents.""
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import planner
 from ..db import get_db
-from ..models import Mission, Task, User
+from ..models import Agent, Mission, Session, Task, User
 from ..schemas import MissionCreateIn, MissionOut
 from ..security import ensure_owner, get_current_user
 
@@ -41,6 +41,48 @@ async def list_missions(
 @router.get("/{mission_id}", response_model=MissionOut)
 async def get_mission(mission_id: int, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     return await _get_visible(db, user, mission_id)
+
+
+@router.get("/{mission_id}/tasks")
+async def mission_tasks(
+    mission_id: int, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
+    """Tâches rattachées à la mission (plan + sous-tâches déléguées) + avancement.
+    Sert le suivi de mission dans le front."""
+    await _get_visible(db, user, mission_id)
+    rows = (
+        await db.execute(
+            select(Task, Agent).join(Agent, Agent.id == Task.agent_id)
+            .where(Task.mission_id == mission_id).order_by(Task.id)
+        )
+    ).all()
+    tids = [t.id for (t, _a) in rows]
+    nxt: dict = {}
+    if tids:
+        r = await db.execute(
+            select(Session.task_id, func.min(Session.scheduled_at))
+            .where(Session.task_id.in_(tids), Session.status == "planned")
+            .group_by(Session.task_id)
+        )
+        nxt = {tid: at for tid, at in r}
+    tasks = [
+        {"id": t.id, "title": t.title or t.description[:80], "status": t.status,
+         "agent_id": a.id, "agent_name": a.name, "next_session_at": nxt.get(t.id),
+         "created_by": t.created_by}
+        for (t, a) in rows
+    ]
+
+    def count(st: str) -> int:
+        return sum(1 for (t, _a) in rows if t.status == st)
+
+    progress = {
+        "total": len(rows),
+        "done": count("done"),
+        "in_progress": count("in_progress"),
+        "waiting": count("waiting_user") + count("stalled"),
+        "failed": count("failed"),
+    }
+    return {"progress": progress, "tasks": tasks}
 
 
 @router.post("", response_model=MissionOut, status_code=201)

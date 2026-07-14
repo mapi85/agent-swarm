@@ -216,6 +216,14 @@ class TaskPatchIn(BaseModel):
     description: str | None = Field(default=None, min_length=1)
 
 
+class TaskLinkOut(BaseModel):
+    task_id: int
+    title: str
+    status: str
+    agent_id: int
+    kind: str
+
+
 class TaskOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -235,14 +243,7 @@ class TaskOut(BaseModel):
     created_at: datetime
     completed_at: datetime | None
     next_session_at: datetime | None = None   # prochaine session planifiée de la tâche
-
-
-class TaskLinkOut(BaseModel):
-    task_id: int
-    title: str
-    status: str
-    agent_id: int
-    kind: str
+    blocked_by: list[TaskLinkOut] = Field(default_factory=list)  # dépendances depends_on non terminées
 
 
 class TaskDetailOut(TaskOut):

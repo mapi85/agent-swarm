@@ -839,9 +839,14 @@ async def execute_tool(name: str, tool_input: dict, ctx: ToolContext) -> tuple[s
                     if target is None:
                         return f"[erreur] Agent inconnu ou non visible : {target_name}. Utilise list_agents.", True
                     target_id = target.id
+                # Hériter de la mission de la tâche parente : une sous-tâche déléguée
+                # se rattache à la mission en cours (pour le suivi d'avancement).
+                parent_task = await db.get(Task, ctx.task_id)
+                parent_mission = parent_task.mission_id if parent_task else None
                 new_task = Task(
                     agent_id=target_id,
                     owner_user_id=ctx.user_id,
+                    mission_id=parent_mission,
                     title=tool_input.get("title", ""),
                     description=tool_input["description"],
                     created_by="self" if target_id == ctx.agent_id else "agent",

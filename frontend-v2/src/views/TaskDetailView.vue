@@ -55,6 +55,12 @@ async function confirmRedirect() {
   redirectOpen.value = false
   await load()
 }
+async function abandon() {
+  if (!confirm('Abandonner cette tâche sans suite ? Elle passera en « Annulée ».'))
+    return
+  await api.post(`/api/tasks/${route.params.id}/cancel`)
+  await load()
+}
 </script>
 
 <template>
@@ -66,6 +72,7 @@ async function confirmRedirect() {
         <StatusBadge :status="task.status" />
         <button v-if="actionable" class="sm" @click="openRedirect">↻ Réorienter</button>
         <button v-if="actionable" class="sm primary" @click="openRelance">▶ Relancer…</button>
+        <button v-if="actionable" class="sm danger" @click="abandon">Abandonner</button>
         <button class="sm" @click="creatingFollowup = true">+ Tâche de suite</button>
       </div>
     </div>

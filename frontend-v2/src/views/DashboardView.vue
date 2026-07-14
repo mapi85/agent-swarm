@@ -49,6 +49,14 @@ const grouped = computed(() => {
 // --- Timeline ---
 const tlSpan = computed(() => tl.value ? (new Date(tl.value.end) - new Date(tl.value.start)) : 1)
 const nowPct = computed(() => tl.value ? (new Date(tl.value.now) - new Date(tl.value.start)) / tlSpan.value * 100 : 0)
+// Graduations horaires sur la fenêtre -12h / +6h (toutes les 3h).
+const tlTicks = computed(() => {
+  const ticks = []
+  for (let h = -12; h <= 6; h += 3) {
+    ticks.push({ pct: ((h + 12) / 18) * 100, label: h === 0 ? '▶' : (h + 'h') })
+  }
+  return ticks
+})
 const tlAgents = computed(() => {
   if (!tl.value) return []
   const by = {}
@@ -169,21 +177,28 @@ onUnmounted(() => { if (stop) stop() })
   </div>
 
   <!-- Timeline -->
-  <h2 style="margin-top: 1.5rem">⏱ Activité (−12h / +6h)</h2>
+  <h2 style="margin-top: 1.5rem">⏱ Activité (−12h / +6h) — cliquez un bloc pour ouvrir la tâche</h2>
   <div class="card pad">
     <div v-if="!tlAgents.length" class="empty">Aucune session sur la fenêtre.</div>
     <div v-else>
       <div v-for="row in tlAgents" :key="row.agent" class="row" style="gap: .5rem; margin-bottom: .3rem">
         <div style="width: 140px; font-size: .8rem" class="muted">{{ row.agent }}</div>
-        <div style="position: relative; flex: 1; height: 20px; background: #f2f4f7; border-radius: 4px">
+        <div style="position: relative; flex: 1; height: 22px; background: #f2f4f7; border-radius: 4px">
           <div v-for="s in row.sessions" :key="s.id" :style="block(s)"
-            style="position: absolute; top: 2px; height: 16px; border-radius: 3px"
-            :title="`${s.agent} · ${s.status} · ${(s.objective||'').slice(0,60)}`"></div>
+            style="position: absolute; top: 2px; height: 18px; border-radius: 3px; cursor: pointer"
+            :title="`${s.agent} · ${s.status} · ${(s.objective||'').slice(0,80)}`"
+            @click="s.task_id && router.push('/tasks/' + s.task_id)"></div>
         </div>
       </div>
-      <div style="position: relative; margin-left: 148px; height: 14px">
+      <!-- Axe temporel : graduations + repère « maintenant » -->
+      <div style="position: relative; margin-left: 148px; height: 18px; margin-top: .2rem">
+        <div v-for="tk in tlTicks" :key="tk.pct" :style="{ left: tk.pct + '%' }"
+          style="position: absolute; top: 0; transform: translateX(-50%); font-size: .66rem"
+          :class="tk.label === '▶' ? '' : 'muted'">
+          <div style="width: 1px; height: 5px; background: var(--muted); margin: 0 auto"></div>
+          {{ tk.label }}
+        </div>
         <div :style="{ left: nowPct + '%' }" style="position: absolute; top: 0; width: 2px; height: 14px; background: var(--red)"></div>
-        <span :style="{ left: nowPct + '%' }" style="position: absolute; top: 0; font-size: .68rem; color: var(--red); transform: translateX(-50%)">maintenant</span>
       </div>
     </div>
   </div>
@@ -222,12 +237,15 @@ onUnmounted(() => { if (stop) stop() })
     </div>
 
     <div v-if="tok.by_time.length" class="card pad" style="margin-top: 1rem">
-      <div style="display: flex; align-items: flex-end; gap: 3px; height: 120px; overflow-x: auto">
-        <div v-for="b in tok.by_time" :key="b.label" style="display: flex; flex-direction: column; align-items: center; min-width: 22px">
-          <div class="muted" style="font-size: .65rem">{{ fmtTokens(b.t) }}</div>
-          <div :style="{ height: (b.t / maxBar * 90 + 4) + 'px' }" :title="`${b.label} · ${fmtTokens(b.t)} · ${b.s} sessions`"
-            style="width: 18px; background: var(--primary); border-radius: 3px 3px 0 0"></div>
-          <div class="muted" style="font-size: .6rem; transform: rotate(-45deg); white-space: nowrap; margin-top: .3rem">{{ b.label.slice(5) }}</div>
+      <div class="muted" style="font-size: .8rem; margin-bottom: .6rem">Consommation dans le temps (survolez une barre pour le détail, défilez horizontalement si besoin)</div>
+      <div style="display: flex; align-items: flex-end; gap: 6px; height: 210px; overflow-x: auto; padding: .3rem .2rem 1.4rem">
+        <div v-for="b in tok.by_time" :key="b.label"
+          style="display: flex; flex-direction: column; align-items: center; min-width: 40px; height: 100%; justify-content: flex-end"
+          :title="`${b.label} · ${fmtTokens(b.t)} · ${b.s} session(s)`">
+          <div class="muted" style="font-size: .68rem; margin-bottom: 3px">{{ fmtTokens(b.t) }}</div>
+          <div :style="{ height: (b.t / maxBar * 160 + 4) + 'px' }"
+            style="width: 26px; background: var(--primary); border-radius: 4px 4px 0 0"></div>
+          <div class="muted" style="font-size: .68rem; margin-top: .4rem; white-space: nowrap; transform: translateY(1.2rem)">{{ b.label.slice(5) }}</div>
         </div>
       </div>
     </div>

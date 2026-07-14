@@ -86,6 +86,7 @@ async def list_tasks(
     # Prochaine session planifiée par tâche (une requête groupée, pas de N+1)
     ids = [t.id for t in tasks]
     nxt: dict = {}
+    blocked: dict[int, list] = {}
     if ids:
         rows = await db.execute(
             select(Session.task_id, func.min(Session.scheduled_at))
@@ -93,10 +94,25 @@ async def list_tasks(
             .group_by(Session.task_id)
         )
         nxt = {tid: at for tid, at in rows}
+        # Dépendances depends_on non terminées (ce que chaque tâche attend)
+        blk_rows = (
+            await db.execute(
+                select(TaskLink.task_id, Task.id, Task.title, Task.status, Task.agent_id)
+                .join(Task, Task.id == TaskLink.linked_task_id)
+                .where(TaskLink.task_id.in_(ids), TaskLink.kind == "depends_on",
+                       Task.status != "done")
+            )
+        ).all()
+        for tid, lid, ltitle, lstatus, lagent in blk_rows:
+            blocked.setdefault(tid, []).append(
+                TaskLinkOut(task_id=lid, title=ltitle or "", status=lstatus, agent_id=lagent,
+                            kind="depends_on")
+            )
     out = []
     for t in tasks:
         o = TaskOut.model_validate(t)
         o.next_session_at = nxt.get(t.id)
+        o.blocked_by = blocked.get(t.id, [])
         out.append(o)
     return out
 

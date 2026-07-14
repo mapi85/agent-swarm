@@ -10,6 +10,8 @@ const agents = ref([])
 const search = ref('')
 const theme = ref('')   // filtre par thème (catégorie) ; '' = tous
 const showForm = ref(false)
+const viewMode = ref(localStorage.getItem('agentsView') || 'tile')  // tile | list
+function setViewMode(m) { viewMode.value = m; localStorage.setItem('agentsView', m) }
 
 async function load() { agents.value = await api.get('/api/agents') }
 onMounted(load)
@@ -39,7 +41,13 @@ async function onSaved() { showForm.value = false; await load() }
 <template>
   <div class="row spread">
     <h1>Agents</h1>
-    <button class="primary" @click="showForm = true">+ Nouvel agent</button>
+    <div class="row" style="gap: .4rem">
+      <div class="row" style="gap: .2rem">
+        <button class="sm" :class="{ primary: viewMode === 'tile' }" @click="setViewMode('tile')" title="Affichage tuiles">▦</button>
+        <button class="sm" :class="{ primary: viewMode === 'list' }" @click="setViewMode('list')" title="Affichage liste">☰</button>
+      </div>
+      <button class="primary" @click="showForm = true">+ Nouvel agent</button>
+    </div>
   </div>
   <input v-model="search" placeholder="Rechercher un agent…" style="max-width: 320px; margin-bottom: .6rem" />
 
@@ -52,7 +60,31 @@ async function onSaved() { showForm.value = false; await load() }
   </div>
 
   <div v-if="!filtered.length" class="card pad empty">Aucun agent{{ theme ? ' pour ce thème' : '' }}.</div>
-  <div class="grid" style="grid-template-columns: repeat(auto-fill, minmax(280px, 1fr))">
+
+  <!-- Mode liste compact -->
+  <table v-if="viewMode === 'list' && filtered.length" class="card" style="overflow: hidden">
+    <thead><tr><th>Agent</th><th>Thème</th><th>État</th><th>Activité</th><th>Prochaine session</th><th>Modèle</th></tr></thead>
+    <tbody>
+      <tr v-for="a in filtered" :key="a.id" style="cursor: pointer" @click="router.push('/agents/' + a.id)">
+        <td><strong>{{ a.name }}</strong><div class="muted" style="font-size: .76rem; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ a.description || '—' }}</div></td>
+        <td><span v-if="a.category" class="badge teal" style="font-size: .72rem">🏷 {{ a.category }}</span></td>
+        <td>
+          <span v-if="a.owner_user_id === null" class="badge violet">système</span>
+          <span v-else-if="a.paused" class="badge amber">en pause</span>
+          <span v-else-if="a.running_tasks" class="badge blue">{{ a.running_tasks }} en cours</span>
+          <span v-else class="badge gray">inactif</span>
+        </td>
+        <td class="muted" style="font-size: .82rem">
+          <span v-if="a.open_tasks">{{ a.open_tasks }} en attente</span><span v-else>—</span>
+        </td>
+        <td class="muted" style="font-size: .82rem">{{ a.next_session_at ? '⏱ ' + fmtDate(a.next_session_at) : (a.paused ? '⏸ pause' : '—') }}</td>
+        <td class="muted" style="font-size: .82rem">{{ a.model }}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- Mode tuile -->
+  <div v-if="viewMode === 'tile'" class="grid" style="grid-template-columns: repeat(auto-fill, minmax(280px, 1fr))">
     <div v-for="a in filtered" :key="a.id" class="card pad" style="cursor: pointer" @click="router.push('/agents/' + a.id)">
       <div class="row spread">
         <strong>{{ a.name }}</strong>

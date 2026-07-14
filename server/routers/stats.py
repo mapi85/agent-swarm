@@ -82,7 +82,7 @@ async def timeline(user: User = Depends(get_current_user), db: AsyncSession = De
     start, end = now - timedelta(hours=12), now + timedelta(hours=6)
     scope = "" if user.role == "admin" else "AND t.owner_user_id = :uid"
     rows = (await db.execute(text(
-        f"""SELECT s.id, s.status, s.objective, s.started_at, s.ended_at, s.scheduled_at,
+        f"""SELECT s.id, s.task_id, s.status, s.objective, s.started_at, s.ended_at, s.scheduled_at,
                    a.name agent, a.category
             FROM sessions s JOIN tasks t ON t.id=s.task_id JOIN agents a ON a.id=s.agent_id
             WHERE COALESCE(s.started_at, s.scheduled_at) BETWEEN :start AND :end {scope}
