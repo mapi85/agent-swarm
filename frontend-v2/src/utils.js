@@ -38,12 +38,19 @@ export function md(src) {
   s = s.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>')
   // liens http(s) seulement
   s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
-  // listes
-  s = s.replace(/^(?:- |\* )(.*)$/gm, '<li>$1</li>')
-  s = s.replace(/(<li>[\s\S]*?<\/li>)/g, (m) => `<ul>${m}</ul>`)
+  // listes à puces : regroupe les lignes consécutives en un SEUL <ul>
+  // (avant, chaque <li> avait son propre <ul> → puces très espacées)
+  s = s.replace(/^(?:[-*] ).+(?:\n[-*] .+)*/gm, (block) => {
+    const items = block.split('\n').map(l => l.replace(/^[-*] /, '').trim())
+      .map(it => `<li>${it}</li>`).join('')
+    return `<ul>${items}</ul>`
+  })
   // paragraphes / sauts de ligne
   s = s.replace(/\n{2,}/g, '</p><p>').replace(/\n/g, '<br>')
-  return `<p>${s}</p>`.replace(/<p>(<(?:h\d|ul|pre)>)/g, '$1').replace(/(<\/(?:h\d|ul|pre)>)<\/p>/g, '$1')
+  return `<p>${s}</p>`
+    .replace(/<p>(<(?:h\d|ul|pre)>)/g, '$1').replace(/(<\/(?:h\d|ul|pre)>)<\/p>/g, '$1')
+    .replace(/<br>(<(?:ul|pre|h\d)>)/g, '$1')     // pas de <br> parasite avant un bloc
+    .replace(/(<\/(?:ul|pre|h\d)>)<br>/g, '$1')   // …ni après
 }
 
 export const TASK_STATUS = {

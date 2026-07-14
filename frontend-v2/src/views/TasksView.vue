@@ -51,12 +51,16 @@ const visibleTasks = computed(() => {
   if (statuses) list = list.filter((t) => statuses.includes(t.status))
   // Tri : Prévues → par prochaine échéance puis bloquées ; Passées → plus récentes d'abord.
   return list.slice().sort((a, b) => {
-    if (phase.value === 'passees') return (b.completed_at || b.id).localeCompare(a.completed_at || a.id)
+    if (phase.value === 'passees') {
+      const ka = a.completed_at || '', kb = b.completed_at || ''
+      if (ka !== kb) return kb.localeCompare(ka)   // plus récent d'abord (completed_at est une chaîne ISO)
+      return b.id - a.id                            // rupture : par id décroissant (number, pas localeCompare)
+    }
     const wa = waitInfo(a), wb = waitInfo(b)
     const ra = wa?.kind === 'session' ? 0 : 1, rb = wb?.kind === 'session' ? 0 : 1
     if (ra !== rb) return ra - rb
     if (wa?.kind === 'session' && wb?.kind === 'session') return a.next_session_at.localeCompare(b.next_session_at)
-    return (a.title || '' + a.id).localeCompare(b.title || '' + b.id)
+    return String(a.title || a.id).localeCompare(String(b.title || b.id))
   })
 })
 
