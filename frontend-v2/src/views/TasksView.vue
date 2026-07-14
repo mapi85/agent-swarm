@@ -10,23 +10,25 @@ const router = useRouter()
 const tasks = ref([])
 const agents = ref({})     // id -> nom
 const agentCat = ref({})   // id -> thème (catégorie)
-const statusFilter = ref('')
 const theme = ref('')            // filtre par thème ; '' = tous
-const onlyUpcoming = ref(true)   // par défaut : uniquement les tâches avec une session à venir
+const phase = ref('prevues')     // prevues | encours | passees | toutes
 const creating = ref(false)
 
+// Phases dérivées du STATUT (combinaison phase × statut).
+const PHASES = {
+  prevues: { label: 'Prévues', cls: 'amber', statuses: ['pending', 'ready', 'waiting_user', 'stalled'] },
+  encours: { label: 'En cours', cls: 'blue', statuses: ['in_progress'] },
+  passees: { label: 'Passées', cls: 'gray', statuses: ['done', 'failed', 'cancelled'] },
+}
+const phaseList = ['prevues', 'encours', 'passees', 'toutes']
+
 async function load() {
-  const url = '/api/tasks' + (statusFilter.value ? `?status=${statusFilter.value}` : '')
-  tasks.value = await api.get(url)
+  tasks.value = await api.get('/api/tasks')
   const list = await api.get('/api/agents')
   agents.value = Object.fromEntries(list.map((a) => [a.id, a.name]))
   agentCat.value = Object.fromEntries(list.map((a) => [a.id, a.category || '']))
 }
 onMounted(load)
-
-// Statuts gérés (source unique : TASK_STATUS, partagée avec StatusBadge).
-const statuses = ['', ...Object.keys(TASK_STATUS)]
-function statusLabel(s) { return s === '' ? 'Tous' : (TASK_STATUS[s] ? TASK_STATUS[s].label : s) }
 
 const hover = ref(null)   // { task, y } : aperçu au survol
 function onEnter(e, t) { hover.value = { task: t, y: e.clientY } }
@@ -35,7 +37,7 @@ function onLeave() { hover.value = null }
 // Thèmes présents parmi les agents des tâches affichées
 const themes = computed(() =>
   [...new Set(tasks.value.map((t) => agentCat.value[t.agent_id]).filter(Boolean))].sort())
-// Raison d'attente d'une tâche : prochaine session, dépendance, ou question ouverte.
+// Raison d'attente d'une tâche (pertinent pour la phase « Prévues »).
 function waitInfo(t) {
   if (t.next_session_at) return { kind: 'session', label: '⏱ ' + fmtDate(t.next_session_at), cls: 'blue' }
   if (t.blocked_by && t.blocked_by.length) return { kind: 'dep', label: '⏳ attend #' + t.blocked_by[0].task_id, cls: 'amber' }
@@ -45,24 +47,19 @@ function waitInfo(t) {
 const visibleTasks = computed(() => {
   let list = tasks.value
   if (theme.value) list = list.filter((t) => agentCat.value[t.agent_id] === theme.value)
-  if (onlyUpcoming.value) {
-    // Tâches « à traiter » : ont une session à venir, OU attendent une dépendance,
-    // OU attendent une réponse utilisateur — pas seulement celles avec une date.
-    list = list
-      .filter((t) => t.next_session_at || (t.blocked_by && t.blocked_by.length) || t.status === 'waiting_user')
-      .slice()
-      .sort((a, b) => {
-        const wa = waitInfo(a), wb = waitInfo(b)
-        const ra = wa?.kind === 'session' ? 0 : 1
-        const rb = wb?.kind === 'session' ? 0 : 1
-        if (ra !== rb) return ra - rb
-        if (wa?.kind === 'session' && wb?.kind === 'session')
-          return a.next_session_at.localeCompare(b.next_session_at)
-        return (a.title || a.id).localeCompare(b.title || b.id)
-      })
-  }
-  return list
+  const statuses = PHASES[phase.value]?.statuses
+  if (statuses) list = list.filter((t) => statuses.includes(t.status))
+  // Tri : Prévues → par prochaine échéance puis bloquées ; Passées → plus récentes d'abord.
+  return list.slice().sort((a, b) => {
+    if (phase.value === 'passees') return (b.completed_at || b.id).localeCompare(a.completed_at || a.id)
+    const wa = waitInfo(a), wb = waitInfo(b)
+    const ra = wa?.kind === 'session' ? 0 : 1, rb = wb?.kind === 'session' ? 0 : 1
+    if (ra !== rb) return ra - rb
+    if (wa?.kind === 'session' && wb?.kind === 'session') return a.next_session_at.localeCompare(b.next_session_at)
+    return (a.title || '' + a.id).localeCompare(b.title || '' + b.id)
+  })
 })
+
 
 async function onCreated() { creating.value = false; await load() }
 </script>
@@ -72,28 +69,25 @@ async function onCreated() { creating.value = false; await load() }
     <h1>Tâches</h1>
     <button class="primary" @click="creating = true">+ Nouvelle tâche</button>
   </div>
-  <div class="row wrap" style="margin-bottom: .6rem">
-    <button v-for="s in statuses" :key="s" class="sm" :class="{ primary: statusFilter === s }"
-      @click="statusFilter = s; load()">{{ statusLabel(s) }}</button>
+  <!-- Phase (déduite du statut) : Prévues par défaut — cohérent avec les badges -->
+  <div class="row wrap" style="gap: .35rem; margin-bottom: .6rem">
+    <button v-for="p in phaseList" :key="p" class="sm"
+      :class="{ primary: phase === p }"
+      @click="phase = (p === 'toutes' ? 'toutes' : p)">
+      {{ p === 'toutes' ? 'Toutes' : PHASES[p].label }}
+    </button>
   </div>
-  <!-- Filtres par thème : couleur dédiée (teal), distincte des filtres de statut -->
-  <div class="row wrap spread" style="gap: .35rem; margin-bottom: 1rem; align-items: center">
-    <div class="row wrap" style="gap: .35rem">
-      <template v-if="themes.length">
-        <button class="sm themebtn" :class="{ on: !theme }" @click="theme = ''">Tous thèmes</button>
-        <button v-for="t in themes" :key="t" class="sm themebtn" :class="{ on: theme === t }" @click="theme = t">
-          🏷 {{ t }}
-        </button>
-      </template>
-    </div>
-    <label class="row" style="width: auto; gap: .4rem; font-size: .85rem; margin: 0">
-      <input type="checkbox" v-model="onlyUpcoming" style="width: auto" />
-      À venir seulement
-    </label>
+  <!-- Filtres par thème : couleur dédiée (teal), distincte des filtres de phase -->
+  <div v-if="themes.length" class="row wrap" style="gap: .35rem; margin-bottom: 1rem">
+    <button class="sm themebtn" :class="{ on: !theme }" @click="theme = ''">Tous thèmes</button>
+    <button v-for="t in themes" :key="t" class="sm themebtn" :class="{ on: theme === t }" @click="theme = t">
+      🏷 {{ t }}
+    </button>
   </div>
 
   <div v-if="!visibleTasks.length" class="card pad empty">
-    {{ onlyUpcoming ? 'Aucune tâche à traiter (à venir, bloquée ou en attente de réponse).' : 'Aucune tâche' + (theme ? ' pour ce thème' : '') + '.' }}
+    Aucune tâche {{ phase === 'toutes' ? '' : (PHASES[phase]?.label.toLowerCase() + ' ') }}{{ theme ? 'pour ce thème' : '' }}.
+
   </div>
   <table v-else class="card" style="overflow: hidden">
     <thead><tr><th>#</th><th>Titre</th><th>Agent</th><th>Thème</th><th>Statut</th><th>Attente</th><th>Tokens</th></tr></thead>
