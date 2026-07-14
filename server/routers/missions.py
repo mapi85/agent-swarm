@@ -47,8 +47,9 @@ async def get_mission(mission_id: int, user: User = Depends(get_current_user), d
 async def mission_tasks(
     mission_id: int, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ):
-    """Tâches rattachées à la mission (plan + sous-tâches déléguées) + avancement.
-    Sert le suivi de mission dans le front."""
+    """Tâches rattachées à la mission + avancement + sessions (activité réelle).
+    En exécution solo, la mission tient en une tâche du superviseur parcourue
+    sur plusieurs sessions : les sessions constituent le vrai suivi d'avancement."""
     await _get_visible(db, user, mission_id)
     rows = (
         await db.execute(
@@ -72,6 +73,21 @@ async def mission_tasks(
         for (t, a) in rows
     ]
 
+    # Sessions de la mission (l'activité du/des agent(s)) — les plus récentes d'abord.
+    sessions = []
+    if tids:
+        srows = (
+            await db.execute(
+                select(Session).where(Session.task_id.in_(tids)).order_by(Session.number.desc()).limit(15)
+            )
+        ).scalars().all()
+        for s in srows:
+            sessions.append({
+                "id": s.id, "number": s.number, "status": s.status,
+                "objective": (s.objective or "")[:160],
+                "report": (s.report or "")[:240], "ended_at": s.ended_at,
+            })
+
     def count(st: str) -> int:
         return sum(1 for (t, _a) in rows if t.status == st)
 
@@ -81,8 +97,9 @@ async def mission_tasks(
         "in_progress": count("in_progress"),
         "waiting": count("waiting_user") + count("stalled"),
         "failed": count("failed"),
+        "sessions": len(sessions),
     }
-    return {"progress": progress, "tasks": tasks}
+    return {"progress": progress, "tasks": tasks, "sessions": sessions}
 
 
 @router.post("", response_model=MissionOut, status_code=201)

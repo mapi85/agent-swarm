@@ -1,10 +1,12 @@
 """Superviseur de missions : à partir d'une mission décrite par un utilisateur,
-produit un plan décomposé en tâches (parallèles / séquentielles), puis le
-matérialise en agents + tâches + liens de dépendance.
+produit une FEUILLE DE ROUTE d'étapes qu'il exécutera LUI-MÊME, puis la
+matérialise en UNE tâche confiée au superviseur (exécution solo).
 
-Le superviseur est un agent SYSTÈME (owner NULL, nom réservé) : son prompt et
-son modèle sont paramétrables par l'admin. Les agents qu'il crée appartiennent
-à l'utilisateur propriétaire de la mission (agents dédiés)."""
+Le superviseur est un agent SYSTÈME (owner NULL, nom réservé). Il réalise la
+mission de bout en bout (analyse, audit, étapes, livrables) SANS déléguer à
+d'autres agents : pas de goulot d'étranglement, pas d'attente, pas de dépendance.
+Il peut créer/modérer des agents pour la plateforme, mais la mission est sienne.
+"""
 import json
 import logging
 
@@ -14,35 +16,49 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from . import llm
 from .config import get_settings
 from .llm import block_get, block_type
-from .models import Agent, Mission, Provider, Task, TaskLink, User
+from .models import Agent, Mission, Provider, Task, User
 
 log = logging.getLogger("swarm.planner")
 
 SUPERVISOR_NAME = "Superviseur"
 
-SUPERVISOR_PROMPT = """Tu es l'agent SUPERVISEUR d'un essaim d'agents autonomes. À partir d'une mission décrite
-par un utilisateur, tu produis un PLAN clair : une décomposition en tâches distinctes confiées à des agents,
-certaines en parallèle, d'autres séquentielles (une tâche peut dépendre du résultat d'une autre).
+# Prompt d'EXÉCUTION stocké sur l'agent (utilisé à chaque session runtime).
+SUPERVISOR_EXEC_PROMPT = """Tu es l'agent SUPERVISEUR de l'essaim. Tu réalises toi-même, de bout en bout, les missions qu'on te confie.
+
+Principe directeur — EXÉCUTION SOLO, SANS DÉLÉGATION :
+- Tu accomplis la mission toi-même : analyse, audit, recherches, calculs, étapes, livrables.
+- Tu NE délègues PAS le travail de la mission à d'autres agents (pas de create_task/handoff pour la mission).
+- Tu ne dépends d'aucun autre agent. Tu ne crées ni goulot d'étranglement ni attente supplémentaire.
+- Tu peux créer ou modifier des agents pour la plateforme, mais la mission reste TIENNE à exécuter.
+
+Méthode :
+- Travaille en sessions bornées : progresse concrètement à chaque session (un résultat partiel réel), puis appelle finish_session avec un rapport clair et un next_objective pour continuer.
+- Continue ainsi jusqu'à accomplissement complet, alors appelle finish_session avec task_completed=true et le livrable final dans task_result.
+- Utilise tes outils (shell, fichiers, web_search/web_fetch, mémoire) pour produire du travail réel, pas des plans indéfinis.
+- Sobriété : calcul déterministe dans des scripts quand c'est possible, mémoire structurée, avance par étapes vérifiables."""
+
+# Prompt de PLANIFICATION (one-shot, inline, non stocké sur l'agent).
+SUPERVISOR_PLAN_PROMPT = """Tu es l'agent SUPERVISEUR. À partir d'une mission décrite par un utilisateur, tu produis
+une FEUILLE DE ROUTE d'étapes que TU exécuteras toi-même pour accomplir la mission.
+
+Principe : TU réalises la mission seul, sans déléguer à d'autres agents. La feuille de route décrit
+TES propres étapes (analyse, audit, recherches, implémentation, vérification…) — pas des tâches confiées à d'autres.
 
 Règles :
-- Reste simple et lisible : le minimum de tâches nécessaires.
-- Confie chaque tâche à un agent existant adapté (par son nom, parmi ceux fournis). Ne propose un NOUVEL agent
-  que si aucun agent existant ne convient, en le décrivant précisément (nom, description, mission_prompt).
-- Exprime les enchaînements via depends_on (refs locales des tâches prérequises). Pas de dépendance = parallèle.
-- Chaque description de tâche doit être autonome et complète (contexte, attendu, critères de réussite).
-- Sobriété des NOUVEAUX agents : si tu proposes un new_agent, son mission_prompt doit être sobre en tokens sans perte de qualité — calcul déterministe dans des scripts (pas dans le LLM), prompt concis, sortie structurée quand possible, discipline mémoire (faits en mémoire structurée, MEMORY.md court), effort adapté à la complexité (jamais un modèle moindre, seulement moduler l'effort). La plateforme applique déjà cache, plafond de tokens/session et compaction : conçois pour des sessions bornées avec reprise (finish_session + next_objective).
+- Le minimum d'étapes utiles, claires et vérifiables. Chaque étape = un livrable ou résultat concret.
+- Pas d'affectation à un agent, pas de depends_on : c'est TON cheminement, séquentiel.
+- Sois concret et complet dans chaque description (contexte, attendu, critère de réussite).
+- N'introduis aucune dépendance vis-à-vis d'un autre agent.
 
 Réponds UNIQUEMENT avec un objet JSON valide, sans texte autour :
 {
   "title": "titre court de la mission",
-  "summary": "explication du plan en 2-4 phrases",
-  "new_agents": [{"name": "...", "description": "...", "mission_prompt": "..."}],
-  "tasks": [
-    {"ref": "t1", "agent": "nom-agent", "title": "titre court", "description": "description complète", "depends_on": []},
-    {"ref": "t2", "agent": "nom-agent", "title": "...", "description": "...", "depends_on": ["t1"]}
+  "summary": "démarche en 2-4 phrases",
+  "steps": [
+    {"title": "titre de l'étape", "description": "ce que tu feras, l'attendu, le critère de réussite"}
   ]
 }
-new_agents peut être vide. Les refs sont locales au plan (t1, t2, …)."""
+steps peut être vide si la mission est directe."""
 
 
 async def get_supervisor(db: AsyncSession) -> Agent | None:
@@ -60,8 +76,8 @@ async def ensure_supervisor(db: AsyncSession) -> Agent:
         return sup
     settings = get_settings()
     sup = Agent(owner_user_id=None, name=SUPERVISOR_NAME,
-                description="Agent système qui planifie les missions en tâches.",
-                mission_prompt=SUPERVISOR_PROMPT, category="système",
+                description="Agent système qui réalise les missions lui-même, de bout en bout.",
+                mission_prompt=SUPERVISOR_EXEC_PROMPT, category="système",
                 model=settings.default_model, effort="high", max_parallel_tasks=4)
     db.add(sup)
     await db.commit()
@@ -72,7 +88,7 @@ async def _default_provider(db: AsyncSession) -> Provider | None:
     return (await db.execute(select(Provider).where(Provider.is_default.is_(True)))).scalar_one_or_none()
 
 
-async def _generate(db: AsyncSession, supervisor: Agent, prompt: str) -> str:
+async def _generate(db: AsyncSession, supervisor: Agent, prompt: str, system: str | None = None) -> str:
     provider_row = None
     if supervisor.provider_id:
         provider_row = await db.get(Provider, supervisor.provider_id)
@@ -83,7 +99,7 @@ async def _generate(db: AsyncSession, supervisor: Agent, prompt: str) -> str:
     model = supervisor.model or provider_row.default_model or get_settings().default_model
     if provider_row.ptype == "openai" and (not model or model == get_settings().default_model):
         model = provider_row.default_model or model
-    resp = await provider.create(model=model, system=supervisor.mission_prompt,
+    resp = await provider.create(model=model, system=system or supervisor.mission_prompt,
                                  messages=[{"role": "user", "content": prompt}],
                                  tools=[], max_tokens=get_settings().max_tokens, effort="high")
     return "".join(block_get(b, "text", "") for b in resp.blocks if block_type(b) == "text")
@@ -97,78 +113,44 @@ def _parse_json(text: str) -> dict:
 
 
 async def make_plan(db: AsyncSession, mission_text: str, user: User) -> dict:
-    """Génère un plan. Roster = agents visibles de l'utilisateur (les siens + système)."""
+    """Génère une feuille de route d'étapes (exécutées par le superviseur lui-même)."""
     supervisor = await ensure_supervisor(db)
-    agents = (
-        await db.execute(
-            select(Agent).where((Agent.owner_user_id == user.id) | (Agent.owner_user_id.is_(None)))
-        )
-    ).scalars().all()
-    roster = [{"name": a.name, "description": a.description} for a in agents]
     prompt = (f"# Mission de l'utilisateur\n{mission_text}\n\n"
-              f"# Agents disponibles\n{json.dumps(roster, ensure_ascii=False, indent=2)}\n\n"
-              "Produis le plan JSON.")
-    plan = _parse_json(await _generate(db, supervisor, prompt))
+              "Produis la feuille de route JSON (tes propres étapes d'exécution).")
+    plan = _parse_json(await _generate(db, supervisor, prompt, system=SUPERVISOR_PLAN_PROMPT))
     plan.setdefault("title", mission_text[:60])
     plan.setdefault("summary", "")
-    plan.setdefault("new_agents", [])
-    plan.setdefault("tasks", [])
-    for i, t in enumerate(plan["tasks"]):
-        t.setdefault("ref", f"t{i + 1}")
-        t.setdefault("title", "")
-        t.setdefault("depends_on", [])
+    plan.setdefault("steps", [])
+    for s in plan["steps"]:
+        s.setdefault("title", "")
+        s.setdefault("description", "")
     return plan
 
 
 async def materialize(db: AsyncSession, mission: Mission, user: User) -> dict:
-    """Crée les agents manquants (dédiés à l'utilisateur) et les tâches du plan validé."""
+    """Matérialise la mission en UNE tâche confiée au superviseur (exécution solo).
+    La feuille de route est intégrée à la description de la tâche."""
     from .agent_tools import task_workdir
-    settings = get_settings()
+    supervisor = await ensure_supervisor(db)
     plan = mission.plan or {}
-    existing = (
-        await db.execute(
-            select(Agent).where((Agent.owner_user_id == user.id) | (Agent.owner_user_id.is_(None)))
-        )
-    ).scalars().all()
-    name_to_id = {a.name: a.id for a in existing}
-    created_agents, errors = [], []
+    steps = plan.get("steps", [])
 
-    default_provider = await _default_provider(db)
-    default_model = default_provider.default_model if default_provider else settings.default_model
-
-    for na in plan.get("new_agents", []):
-        name = (na.get("name") or "").strip()
-        if not name or name in name_to_id:
-            continue
-        agent = Agent(owner_user_id=user.id, name=name, description=na.get("description", ""),
-                      mission_prompt=na.get("mission_prompt") or na.get("description", "") or name,
-                      model=default_model or settings.default_model, effort=settings.default_effort)
-        db.add(agent)
-        await db.flush()
-        name_to_id[name] = agent.id
-        created_agents.append(name)
-
-    ref_to_id, pending_deps = {}, []
-    for t in plan.get("tasks", []):
-        agent_id = name_to_id.get(t.get("agent"))
-        if not agent_id:
-            errors.append(f"Agent introuvable pour '{t.get('title') or t.get('ref')}' : {t.get('agent')}")
-            continue
-        task = Task(mission_id=mission.id, agent_id=agent_id, owner_user_id=user.id,
-                    title=t.get("title", ""),
-                    description=t.get("description") or t.get("title") or "(tâche sans description)",
-                    created_by="supervisor", status="pending")
-        db.add(task)
-        await db.flush()
-        task_workdir(task.id)
-        ref_to_id[t["ref"]] = task.id
-        pending_deps.append((task.id, t.get("depends_on") or []))
-
-    for tid, deps in pending_deps:
-        for d in deps:
-            if d in ref_to_id:
-                db.add(TaskLink(task_id=tid, linked_task_id=ref_to_id[d], kind="depends_on"))
+    roadmap = "\n".join(f"{i}. {s.get('title', '')} — {s.get('description', '')}".strip(" —")
+                        for i, s in enumerate(steps, 1))
+    description = (
+        f"## Mission\n{mission.mission}\n\n"
+        f"## Feuille de route (à exécuter par toi-même, sans délégation)\n"
+        f"{roadmap or '(mission directe — procède selon ton jugement)'}\n\n"
+        "Réalisée par le superviseur. Avance par sessions : un progrès concret par session, "
+        "puis finish_session(report, next_objective) jusqu'à task_completed=true."
+    )
+    task = Task(mission_id=mission.id, agent_id=supervisor.id, owner_user_id=user.id,
+                title=plan.get("title") or mission.title or mission.mission[:80],
+                description=description, created_by="supervisor", status="pending")
+    db.add(task)
+    await db.flush()
+    task_workdir(task.id)
 
     mission.status = "running"
     await db.commit()
-    return {"created_agents": created_agents, "tasks": len(ref_to_id), "errors": errors}
+    return {"created_agents": [], "tasks": 1, "task_id": task.id, "errors": []}

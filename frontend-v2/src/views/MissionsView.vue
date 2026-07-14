@@ -39,7 +39,7 @@ async function remove(m) {
   try { await api.del(`/api/missions/${m.id}`); await load() } catch (e) { alert(e.message) }
 }
 
-// Suivi d'avancement : tâches réelles (plan + sous-tâches déléguées) + progression.
+// Suivi d'avancement : tâches réelles + sessions du superviseur (exécution solo).
 async function toggleProgress(m) {
   if (expanded.value[m.id]) { expanded.value[m.id] = false; return }
   if (!progress.value[m.id]) {
@@ -52,22 +52,10 @@ function pct(m) {
   const p = progress.value[m.id]?.progress
   return p && p.total ? Math.round((p.done / p.total) * 100) : 0
 }
+function missionTaskId(m) { return progress.value[m.id]?.tasks?.[0]?.id }
 
-// Regroupe les tâches d'un plan par vagues de dépendances (pour l'affichage).
-function waves(plan) {
-  if (!plan || !plan.tasks) return []
-  const byRef = Object.fromEntries(plan.tasks.map((t) => [t.ref, t]))
-  const level = {}
-  function lvl(t) {
-    if (level[t.ref] != null) return level[t.ref]
-    const deps = (t.depends_on || []).map((r) => byRef[r]).filter(Boolean)
-    return (level[t.ref] = deps.length ? 1 + Math.max(...deps.map(lvl)) : 0)
-  }
-  plan.tasks.forEach(lvl)
-  const out = []
-  plan.tasks.forEach((t) => { (out[level[t.ref]] ||= []).push(t) })
-  return out
-}
+// (L'ancien regroupement par vagues de dépendances est supprimé : le superviseur
+// exécute désormais la mission lui-même, en suivant une simple feuille de route.)
 </script>
 
 <template>
@@ -100,18 +88,17 @@ function waves(plan) {
       </div>
       <p class="muted" style="margin: .4rem 0">{{ m.summary }}</p>
 
-      <div v-if="m.plan" style="margin: .6rem 0">
-        <div v-if="m.plan.new_agents && m.plan.new_agents.length" style="margin-bottom: .5rem">
-          <div class="muted" style="font-size: .8rem; font-weight: 600">Nouveaux agents à créer</div>
-          <span v-for="na in m.plan.new_agents" :key="na.name" class="badge blue" style="margin-right: .3rem">+ {{ na.name }}</span>
+      <div v-if="m.plan && m.plan.steps && m.plan.steps.length" style="margin: .6rem 0">
+        <div class="muted" style="font-size: .8rem; font-weight: 600; margin-bottom: .3rem">
+          Feuille de route (réalisée par le superviseur lui-même, sans délégation)
         </div>
-        <div v-for="(wave, i) in waves(m.plan)" :key="i" style="margin-bottom: .4rem">
-          <div class="muted" style="font-size: .78rem">Étape {{ i + 1 }} · {{ wave.length }} tâche(s)</div>
-          <div v-for="t in wave" :key="t.ref" class="card pad" style="padding: .5rem .7rem; margin: .2rem 0">
-            <strong>{{ t.title || t.ref }}</strong> → <span class="muted">{{ t.agent }}</span>
-            <Markdown :text="t.description" style="font-size: .85rem" />
-          </div>
+        <div v-for="(s, i) in m.plan.steps" :key="i" class="card pad" style="padding: .5rem .7rem; margin: .2rem 0">
+          <strong>Étape {{ i + 1 }} — {{ s.title }}</strong>
+          <Markdown :text="s.description" style="font-size: .85rem" />
         </div>
+      </div>
+      <div v-else-if="m.plan && m.plan.tasks && m.plan.tasks.length" class="muted" style="font-size: .8rem; margin: .6rem 0">
+        Plan ancien format (mission déléguée) — {{ m.plan.tasks.length }} tâches.
       </div>
 
       <div class="row wrap">
@@ -150,7 +137,28 @@ function waves(plan) {
           <span class="muted" style="font-size: .78rem">{{ t.agent_name }}</span>
         </div>
         <div v-if="!progress[m.id].tasks.length" class="muted" style="font-size: .82rem">
-          Aucune tâche rattachée (la mission n'a pas encore été materialisée ou n'a pas de sous-tâches).
+          Aucune tâche rattachée (la mission n'a pas encore été materialisée).
+        </div>
+
+        <!-- Activité : sessions du superviseur (le vrai suivi d'une mission solo) -->
+        <div v-if="progress[m.id].sessions && progress[m.id].sessions.length" style="margin-top: .7rem">
+          <div class="muted" style="font-size: .8rem; font-weight: 600; margin-bottom: .3rem">
+            Activité du superviseur — {{ progress[m.id].progress.sessions }} session(s)
+          </div>
+          <div v-for="s in progress[m.id].sessions" :key="s.id" class="navlink row spread"
+            style="padding: .3rem .4rem; align-items: flex-start"
+            @click="missionTaskId(m) && router.push('/tasks/' + missionTaskId(m))">
+            <div class="row" style="gap: .4rem; align-items: center; flex: 1; min-width: 0">
+              <StatusBadge :status="s.status" kind="session" />
+              <span class="muted" style="font-size: .76rem">n°{{ s.number }}</span>
+              <span style="font-size: .82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ s.objective || '(sans objectif)' }}</span>
+            </div>
+          </div>
+          <div v-if="progress[m.id].sessions[0] && progress[m.id].sessions[0].report" class="card pad"
+            style="font-size: .8rem; margin-top: .4rem; max-height: 14em; overflow: auto">
+            <strong style="font-size: .76rem; color: var(--muted)">DERNIER RAPPORT</strong>
+            <div class="muted" style="white-space: pre-wrap; margin-top: .2rem">{{ progress[m.id].sessions[0].report }}</div>
+          </div>
         </div>
       </div>
     </div>
