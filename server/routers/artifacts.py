@@ -43,7 +43,7 @@ def _safe(base: Path, rel: str) -> Path:
 
 async def _agent_visible(db, user, agent_id) -> Agent:
     a = await db.get(Agent, agent_id)
-    if a is None or (user.role != "admin" and a.owner_user_id not in (None, user.id)):
+    if a is None or a.owner_user_id not in (None, user.id):
         raise HTTPException(status_code=404, detail="Agent introuvable")
     return a
 

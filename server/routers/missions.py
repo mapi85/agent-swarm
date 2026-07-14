@@ -30,9 +30,7 @@ async def list_missions(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(Mission).order_by(Mission.id.desc())
-    if user.role != "admin":
-        query = query.where(Mission.owner_user_id == user.id)
+    query = select(Mission).where(Mission.owner_user_id == user.id).order_by(Mission.id.desc())
     if not include_archived:
         query = query.where(Mission.status != "archived")
     return (await db.execute(query)).scalars().all()

@@ -44,8 +44,7 @@ class LinkIn(BaseModel):
 
 
 def _visible(query, user: User):
-    if user.role == "admin":
-        return query
+    # Ressources partagées (scope=shared) + ses propres ressources (admin compris).
     return query.where(or_(Resource.scope == "shared", Resource.owner_user_id == user.id))
 
 
@@ -68,7 +67,7 @@ async def _get_visible(db: AsyncSession, user: User, rid: int) -> Resource:
     r = await db.get(Resource, rid)
     if r is None:
         raise HTTPException(status_code=404, detail="Ressource introuvable")
-    if user.role != "admin" and r.scope != "shared" and r.owner_user_id != user.id:
+    if r.scope != "shared" and r.owner_user_id != user.id:
         raise HTTPException(status_code=404, detail="Ressource introuvable")
     return r
 
@@ -130,7 +129,7 @@ async def upload(
 @router.delete("/{rid}", status_code=204)
 async def delete_resource(rid: int, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     r = await _get_visible(db, user, rid)
-    if user.role != "admin" and r.owner_user_id != user.id:
+    if r.scope != "shared" and r.owner_user_id != user.id:
         raise HTTPException(status_code=403, detail="Suppression réservée au propriétaire")
     if r.kind == "file" and r.filename:
         fp = get_settings().resources_dir / r.filename

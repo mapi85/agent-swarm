@@ -76,7 +76,7 @@ channels = APIRouter(prefix="/api/channels", tags=["channels"])
 
 async def _get_own(db: AsyncSession, user: User, cid: int) -> NotificationChannel:
     ch = await db.get(NotificationChannel, cid)
-    if ch is None or (user.role != "admin" and ch.owner_user_id != user.id):
+    if ch is None or ch.owner_user_id != user.id:
         raise HTTPException(status_code=404, detail="Canal introuvable")
     return ch
 

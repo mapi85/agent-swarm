@@ -31,9 +31,8 @@ async def list_sessions(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(Session).order_by(Session.id.desc())
-    if user.role != "admin":
-        query = query.join(Task, Task.id == Session.task_id).where(Task.owner_user_id == user.id)
+    query = select(Session).join(Task, Task.id == Session.task_id) \
+        .where(Task.owner_user_id == user.id).order_by(Session.id.desc())
     if task_id:
         query = query.where(Session.task_id == task_id)
     if agent_id:

@@ -23,16 +23,12 @@ async def token_stats(
 ):
     delta = _PERIODS.get(period)
     since = datetime.now(timezone.utc) - delta if delta else None
-    admin = user.role == "admin"
 
-    where = ["1=1"]
-    params: dict = {}
+    where = ["tu.user_id = :uid"]   # comptes indépendants (admin compris)
+    params: dict = {"uid": user.id}
     if since is not None:
         where.append("tu.ts >= :since")
         params["since"] = since
-    if not admin:
-        where.append("tu.user_id = :uid")
-        params["uid"] = user.id
     w = " AND ".join(where)
 
     async def rows(sql):
@@ -80,7 +76,7 @@ async def timeline(user: User = Depends(get_current_user), db: AsyncSession = De
     """Sessions dans la fenêtre -12h / +6h (pour la frise du tableau de bord)."""
     now = datetime.now(timezone.utc)
     start, end = now - timedelta(hours=12), now + timedelta(hours=6)
-    scope = "" if user.role == "admin" else "AND t.owner_user_id = :uid"
+    scope = "AND t.owner_user_id = :uid"   # comptes indépendants (admin compris)
     rows = (await db.execute(text(
         f"""SELECT s.id, s.task_id, s.status, s.objective, s.started_at, s.ended_at, s.scheduled_at,
                    a.name agent, a.category

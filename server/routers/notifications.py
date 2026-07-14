@@ -39,7 +39,7 @@ class NotificationOut(BaseModel):
 
 async def _get_own(db: AsyncSession, user: User, notif_id: int) -> Notification:
     notif = await db.get(Notification, notif_id)
-    if notif is None or (user.role != "admin" and notif.user_id != user.id):
+    if notif is None or notif.user_id != user.id:
         raise HTTPException(status_code=404, detail="Notification introuvable")
     return notif
 

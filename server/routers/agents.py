@@ -21,18 +21,22 @@ async def _get_visible(db: AsyncSession, user: User, agent_id: int) -> Agent:
     agent = await db.get(Agent, agent_id)
     if agent is None:
         raise HTTPException(status_code=404, detail="Agent introuvable")
-    if user.role != "admin" and agent.owner_user_id not in (None, user.id):
+    # Comptes indépendants : on voit ses agents dédiés + les agents système (owner NULL).
+    if agent.owner_user_id not in (None, user.id):
         raise HTTPException(status_code=404, detail="Agent introuvable")
     return agent
 
 
 def _require_manage(user: User, agent: Agent) -> None:
-    """Modifier/mettre en pause : le propriétaire, ou l'admin (seul habilité
-    pour les agents système)."""
-    if user.role == "admin":
+    """Modifier/mettre en pause : les agents système (owner NULL) sont gérés par
+    l'admin ; un agent dédié n'est géré que par son propriétaire (admin compris
+    — isolation des comptes)."""
+    if agent.owner_user_id is None:
+        if user.role != "admin":
+            raise HTTPException(status_code=403, detail="Cet agent système est géré par l'administrateur")
         return
     if agent.owner_user_id != user.id:
-        raise HTTPException(status_code=403, detail="Cet agent est géré par l'administrateur")
+        raise HTTPException(status_code=404, detail="Agent introuvable")
 
 
 async def _to_out(db: AsyncSession, agent: Agent) -> AgentOut:
@@ -76,9 +80,11 @@ async def _validate_provider_model(db: AsyncSession, provider_id: int | None, mo
 
 @router.get("", response_model=list[AgentOut])
 async def list_agents(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    query = select(Agent).order_by(Agent.name)
-    if user.role != "admin":
-        query = query.where((Agent.owner_user_id == user.id) | (Agent.owner_user_id.is_(None)))
+    # Comptes indépendants : ses agents dédiés + les agents système (owner NULL),
+    # y compris pour l'admin.
+    query = select(Agent).where(
+        (Agent.owner_user_id == user.id) | (Agent.owner_user_id.is_(None))
+    ).order_by(Agent.name)
     agents = (await db.execute(query)).scalars().all()
     return [await _to_out(db, a) for a in agents]
 

@@ -38,7 +38,7 @@ async def stream_session_events(
         if session is None:
             raise HTTPException(status_code=404, detail="Session introuvable")
         task = await db.get(Task, session.task_id)
-        if user.role != "admin" and (task is None or task.owner_user_id != user.id):
+        if task is None or task.owner_user_id != user.id:
             raise HTTPException(status_code=404, detail="Session introuvable")
 
     async def gen():
@@ -85,14 +85,14 @@ async def stream_overview(request: Request, user: User = Depends(get_current_use
             await db.execute(
                 select(func.count()).select_from(Task).where(
                     Task.status.in_(("pending", "ready", "in_progress", "waiting_user", "stalled")),
-                    *([] if user.role == "admin" else [scope_task]),
+                    scope_task,
                 )
             )
         ).scalar_one()
         running = (
             await db.execute(
                 select(func.count()).select_from(Session).join(Task, Task.id == Session.task_id)
-                .where(Session.status == "running", *([] if user.role == "admin" else [scope_task]))
+                .where(Session.status == "running", scope_task)
             )
         ).scalar_one()
         open_notifs = (

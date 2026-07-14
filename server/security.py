@@ -93,10 +93,11 @@ async def require_admin(user: User = Depends(get_current_user)) -> User:
 
 
 def ensure_owner(user: User, owner_user_id: int | None) -> None:
-    """Contrôle d'appartenance : l'admin voit tout ; un objet système
-    (owner NULL) est lisible par tous — les routes d'écriture des objets
-    système passent par require_admin en amont."""
-    if user.role == "admin" or owner_user_id is None:
-        return
+    """Contrôle d'appartenance. Les comptes sont indépendants : chacun ne voit
+    que ses objets. Un objet système (owner NULL) est partagé/lisible par tous.
+    L'admin n'a PAS de privilège de lecture sur les données des autres comptes —
+    ses pouvoirs (providers, comptes, agents système) passent par require_admin."""
+    if owner_user_id is None:
+        return  # objet système/partagé : lisible par tous
     if owner_user_id != user.id:
         raise HTTPException(status_code=404, detail="Introuvable")

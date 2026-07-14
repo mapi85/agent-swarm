@@ -73,9 +73,7 @@ async def list_tasks(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(Task).order_by(Task.id.desc())
-    if user.role != "admin":
-        query = query.where(Task.owner_user_id == user.id)
+    query = select(Task).where(Task.owner_user_id == user.id).order_by(Task.id.desc())
     if status:
         query = query.where(Task.status == status)
     if agent_id:
@@ -123,7 +121,7 @@ async def attention(user: User = Depends(get_current_user), db: AsyncSession = D
     - questions : tâches en 'waiting_user' avec leur notification question ouverte
     - stalled   : tâches bloquées (auto-continuations sans progrès)
     (Déclarée avant /{task_id} pour ne pas être capturée par la route paramétrée.)"""
-    scope = [] if user.role == "admin" else [Task.owner_user_id == user.id]
+    scope = [Task.owner_user_id == user.id]  # comptes indépendants (admin compris)
 
     qrows = (
         await db.execute(
@@ -183,7 +181,7 @@ async def create_task(
     body: TaskCreateIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ):
     agent = await db.get(Agent, body.agent_id)
-    if agent is None or (user.role != "admin" and agent.owner_user_id not in (None, user.id)):
+    if agent is None or agent.owner_user_id not in (None, user.id):
         raise HTTPException(status_code=404, detail="Agent introuvable")
     task = Task(
         agent_id=agent.id,
