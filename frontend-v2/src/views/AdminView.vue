@@ -86,6 +86,35 @@ async function fetchModels() {
   } catch (e) { alert(e.message) }
 }
 
+// --- affectation d'un provider à des agents (en masse) ---
+const assignProv = ref(null)     // provider ciblé (ouvre la modale)
+const assignAgents = ref([])     // agents visibles (les siens + système)
+const assignSel = ref({})        // agent id -> coché
+const assignBusy = ref(false)
+
+async function openAssign(p) {
+  assignProv.value = p
+  assignAgents.value = await api.get('/api/agents')
+  // Pré-coche les agents déjà rattachés à ce provider
+  assignSel.value = Object.fromEntries(assignAgents.value.map((a) => [a.id, a.provider_id === p.id]))
+}
+async function confirmAssign() {
+  const p = assignProv.value
+  assignBusy.value = true
+  try {
+    for (const a of assignAgents.value) {
+      const want = !!assignSel.value[a.id]
+      const has = a.provider_id === p.id
+      // Coché et pas encore rattaché → affecter (modèle en mode défaut du provider).
+      if (want && !has) await api.patch(`/api/agents/${a.id}`, { provider_id: p.id })
+      // Décoché mais rattaché → repasser au provider par défaut.
+      else if (!want && has) await api.patch(`/api/agents/${a.id}`, { provider_id: null })
+    }
+    assignProv.value = null
+    await loadProviders()
+  } catch (e) { alert(e.message) } finally { assignBusy.value = false }
+}
+
 async function saveSmtp() {
   const body = { host: smtp.value.host, port: smtp.value.port, user: smtp.value.user, from_addr: smtp.value.from_addr }
   if (smtp.value.password) body.password = smtp.value.password
@@ -169,6 +198,7 @@ async function saveSmtp() {
             <span class="muted" style="font-size: .8rem">{{ p.agent_count }} agent(s)</span>
           </div>
           <div class="row">
+            <button class="ghost sm" @click="openAssign(p)" title="Affecter ce provider à des agents">👥 Affecter</button>
             <button v-if="!p.is_default" class="ghost sm" @click="setDefault(p)">Par défaut</button>
             <button class="ghost sm" @click="editProvider(p)">✎</button>
             <button class="ghost sm danger" @click="removeProvider(p)">×</button>
@@ -212,6 +242,27 @@ async function saveSmtp() {
       <div class="row" style="justify-content: flex-end; margin-top: 1rem">
         <button class="ghost" @click="provForm = null">Annuler</button>
         <button class="primary" @click="saveProvider">Enregistrer</button>
+      </div>
+    </Modal>
+
+    <!-- Affectation en masse : cocher les agents qui utiliseront ce provider -->
+    <Modal v-if="assignProv" :title="`Affecter « ${assignProv.name} » à des agents`" @close="assignProv = null">
+      <p class="muted" style="font-size: .85rem; margin-top: 0">
+        Les agents cochés utiliseront ce provider (modèle en mode défaut du provider).
+        Décocher un agent déjà rattaché le repasse au provider par défaut.
+      </p>
+      <div style="max-height: 50vh; overflow-y: auto">
+        <label v-for="a in assignAgents" :key="a.id" class="row" style="gap: .5rem; padding: .3rem .2rem; margin: 0; cursor: pointer">
+          <input type="checkbox" v-model="assignSel[a.id]" style="width: auto" />
+          <span style="flex: 1">{{ a.name }}</span>
+          <span v-if="a.owner_user_id === null" class="badge violet" style="font-size: .7rem">système</span>
+          <span class="muted" style="font-size: .76rem">{{ a.provider_id === assignProv.id ? 'déjà rattaché' : (a.provider_id === null ? 'défaut' : '') }}</span>
+        </label>
+        <div v-if="!assignAgents.length" class="muted" style="padding: .5rem">Aucun agent.</div>
+      </div>
+      <div class="row" style="justify-content: flex-end; margin-top: 1rem; gap: .4rem">
+        <button class="ghost" @click="assignProv = null">Annuler</button>
+        <button class="primary" :disabled="assignBusy" @click="confirmAssign">{{ assignBusy ? 'Affectation…' : 'Appliquer' }}</button>
       </div>
     </Modal>
   </div>
