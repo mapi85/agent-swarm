@@ -78,7 +78,7 @@ async function onSaved() { showForm.value = false; await load() }
           <span v-if="a.open_tasks">{{ a.open_tasks }} en attente</span><span v-else>—</span>
         </td>
         <td class="muted" style="font-size: .82rem">{{ a.next_session_at ? '⏱ ' + fmtDate(a.next_session_at) : (a.paused ? '⏸ pause' : '—') }}</td>
-        <td class="muted" style="font-size: .82rem">{{ a.model }}</td>
+        <td class="muted" style="font-size: .82rem">{{ a.resolved_model || a.model }}<span v-if="!a.model"> (défaut)</span></td>
       </tr>
     </tbody>
   </table>
@@ -96,7 +96,7 @@ async function onSaved() { showForm.value = false; await load() }
         <span v-if="a.category" class="badge teal">🏷 {{ a.category }}</span>
         <span v-if="a.running_tasks" class="badge blue">{{ a.running_tasks }} en cours</span>
         <span v-if="a.open_tasks" class="badge gray">{{ a.open_tasks }} en attente</span>
-        <span class="muted">{{ a.model }}</span>
+        <span class="muted">{{ a.resolved_model || a.model }}<template v-if="!a.model"> (défaut)</template></span>
       </div>
       <div class="muted" style="font-size: .76rem; margin-top: .3rem">
         {{ a.next_session_at ? '⏱ Prochaine session : ' + fmtDate(a.next_session_at) : (a.paused ? '⏸ En pause' : '— aucune session planifiée') }}

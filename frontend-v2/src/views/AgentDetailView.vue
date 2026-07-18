@@ -60,7 +60,7 @@ async function onTaskCreated() { creatingTask.value = false; await load() }
     <div class="card pad" style="margin: 1rem 0">
       <div class="row wrap" style="gap: 1rem; font-size: .85rem">
         <span v-if="agent.category" class="badge gray">🏷 {{ agent.category }}</span>
-        <span class="muted">Modèle : <b>{{ agent.model }}</b></span>
+        <span class="muted">Modèle : <b>{{ agent.resolved_model || agent.model }}</b><template v-if="!agent.model"> (suit le défaut)</template></span>
         <span class="muted">Effort : {{ agent.effort }}</span>
         <span class="muted">Parallèle : {{ agent.max_parallel_tasks }}</span>
         <span class="muted">Budget/session : {{ agent.session_token_budget || '∞' }}</span>

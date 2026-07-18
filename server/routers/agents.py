@@ -58,24 +58,39 @@ async def _to_out(db: AsyncSession, agent: Agent) -> AgentOut:
             .where(Session.agent_id == agent.id, Session.status == "planned")
         )
     ).scalar()
+    # Modèle effectif : celui de l'agent, sinon le default_model du provider
+    # (provider de l'agent, sinon provider par défaut) — résolu comme au runtime.
+    out.resolved_model = agent.model
+    if not out.resolved_model:
+        prow = await db.get(Provider, agent.provider_id) if agent.provider_id else None
+        if prow is None:
+            prow = (
+                await db.execute(select(Provider).where(Provider.is_default.is_(True)))
+            ).scalar_one_or_none()
+        out.resolved_model = prow.default_model if prow else ""
     return out
 
 
 async def _validate_provider_model(db: AsyncSession, provider_id: int | None, model: str) -> str:
+    """Un modèle vide = « suivre le paramétrage par défaut » : rien n'est figé sur
+    l'agent, le modèle est résolu à l'exécution (default_model du provider — celui
+    de l'agent ou le provider par défaut). Changer le défaut bascule donc d'un coup
+    tous les agents en mode défaut. On vérifie seulement que la résolution aboutira."""
+    if provider_id is not None and await db.get(Provider, provider_id) is None:
+        raise HTTPException(status_code=422, detail="Provider inconnu")
+    if model:
+        return model
+    resolved = None
     if provider_id is not None:
-        provider = await db.get(Provider, provider_id)
-        if provider is None:
-            raise HTTPException(status_code=422, detail="Provider inconnu")
-        if not model:
-            model = provider.default_model
-    if not model:
+        resolved = (await db.get(Provider, provider_id)).default_model
+    if not resolved:
         default = (
             await db.execute(select(Provider).where(Provider.is_default.is_(True)))
         ).scalar_one_or_none()
-        model = default.default_model if default else ""
-    if not model:
+        resolved = default.default_model if default else ""
+    if not resolved:
         raise HTTPException(status_code=422, detail="Préciser un modèle (aucun modèle par défaut)")
-    return model
+    return ""  # stocké vide : le modèle suivra le défaut du provider
 
 
 @router.get("", response_model=list[AgentOut])
@@ -128,7 +143,9 @@ async def patch_agent(
     fields = body.model_dump(exclude_unset=True)
     if "provider_id" in fields or "model" in fields:
         provider_id = fields.get("provider_id", agent.provider_id)
-        model = fields.get("model") or ("" if "provider_id" in fields else agent.model)
+        # model explicitement fourni (y compris "" = suivre le défaut) ; sinon, en cas de
+        # changement de provider seul, on repasse en mode défaut ("").
+        model = fields["model"] if "model" in fields else ""
         fields["model"] = await _validate_provider_model(db, provider_id, model)
     for key, value in fields.items():
         setattr(agent, key, value)

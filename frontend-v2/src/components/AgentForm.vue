@@ -21,7 +21,9 @@ const busy = ref(false)
 function onProvider() {
   const p = providers.value.find((x) => x.id === form.value.provider_id)
   models.value = p ? p.models : []
-  if (p && !models.value.includes(form.value.model)) form.value.model = p.default_model || ''
+  // Changement de provider : on repasse en mode défaut (modèle vide = suit le
+  // default_model du provider) sauf si le modèle saisi existe chez le nouveau provider.
+  if (p && form.value.model && !models.value.includes(form.value.model)) form.value.model = ''
 }
 
 onMounted(async () => {
@@ -81,8 +83,12 @@ async function save() {
       </div>
       <div>
         <label>Modèle</label>
-        <input v-model="form.model" list="modellist" placeholder="modèle" />
+        <input v-model="form.model" list="modellist" placeholder="(vide = suivre le défaut du provider)" />
         <datalist id="modellist"><option v-for="m in models" :key="m" :value="m" /></datalist>
+        <div class="muted" style="font-size: .74rem; margin-top: .2rem">
+          Laisser vide pour suivre le paramétrage par défaut : changer le provider/modèle par défaut
+          s'appliquera d'un coup à tous les agents en mode défaut.
+        </div>
       </div>
     </div>
 

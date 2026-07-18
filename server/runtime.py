@@ -324,8 +324,20 @@ async def run_session(session_id: int) -> None:
 
         session.provider_id = provider_row.id  # statut déjà 'running' (réservation atomique)
         task.status = "in_progress"
-        # Snapshots détachés (l'ORM n'est pas partagé avec les threads d'outils)
-        agent_id, agent_name, agent_model, agent_effort = agent.id, agent.name, agent.model, agent.effort
+        # Snapshots détachés (l'ORM n'est pas partagé avec les threads d'outils).
+        # Modèle vide sur l'agent = suivre le paramétrage par défaut : on résout ici,
+        # à l'exécution, depuis le provider retenu (jamais figé sur l'agent).
+        agent_id, agent_name, agent_effort = agent.id, agent.name, agent.effort
+        agent_model = agent.model or provider_row.default_model
+        if not agent_model:
+            session.status = "failed"
+            session.ended_at = datetime.now(timezone.utc)
+            session.error = "Aucun modèle : ni sur l'agent, ni en défaut du provider"
+            task.status = "failed"
+            db.add(Event(session_id=session_id, type="error",
+                         content="Aucun modèle résolu (agent en mode défaut, provider sans default_model)."))
+            await db.commit()
+            return
         agent_mission, max_iter = agent.mission_prompt, agent.max_iterations
         budget = agent.session_token_budget or settings.default_session_token_budget
         user_id, task_id, session_number = user.id, task.id, session.number

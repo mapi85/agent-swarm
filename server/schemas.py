@@ -158,6 +158,7 @@ class AgentOut(BaseModel):
     open_tasks: int = 0
     running_tasks: int = 0
     next_session_at: datetime | None = None   # prochaine session planifiée (échéance)
+    resolved_model: str = ""   # modèle effectif : agent.model ou default_model du provider (mode défaut)
 
 
 class AgentCreateIn(BaseModel):
@@ -180,7 +181,7 @@ class AgentPatchIn(BaseModel):
     mission_prompt: str | None = Field(default=None, min_length=1)
     category: str | None = Field(default=None, max_length=120)
     provider_id: int | None = None  # null explicite = repasser au provider par défaut
-    model: str | None = Field(default=None, min_length=1, max_length=120)
+    model: str | None = Field(default=None, max_length=120)  # "" = suivre le défaut du provider
     effort: str | None = Field(default=None, pattern="^(low|medium|high|max)$")
     max_iterations: int | None = Field(default=None, ge=5, le=500)
     session_token_budget: int | None = Field(default=None, ge=0)
