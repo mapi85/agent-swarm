@@ -230,6 +230,17 @@ async def cancel_task(
     if task.status not in ("pending", "ready", "waiting_user", "stalled"):
         raise HTTPException(status_code=400, detail="Seule une tâche non démarrée peut être annulée")
     task.status = "cancelled"
+    # Solder aussi les sessions planifiées : sinon elles restent orphelines et
+    # partiraient quand même à la prochaine reprise de l'agent.
+    planned = (
+        await db.execute(
+            select(Session).where(Session.task_id == task_id, Session.status == "planned")
+        )
+    ).scalars().all()
+    for s in planned:
+        s.status = "interrupted"
+        s.ended_at = datetime.now(timezone.utc)
+        s.error = "tâche annulée"
     await db.commit()
     return task
 
