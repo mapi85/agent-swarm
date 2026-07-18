@@ -35,6 +35,18 @@ async function load() {
 onMounted(load)
 
 const selectedRunning = computed(() => selectedSession.value?.status === 'running')
+// Tâches récurrentes : des dizaines de sessions → boutons pour les plus récentes
+// seulement, la liste complète dans un sélecteur.
+const recentSessions = computed(() => sessions.value.slice(0, 8))
+const manySessions = computed(() => sessions.value.length > 8)
+const selectedIdx = computed(() => sessions.value.findIndex((s) => s.id === selectedSession.value?.id))
+function selectPrev() { const i = selectedIdx.value; if (i < sessions.value.length - 1) selectedSession.value = sessions.value[i + 1] }
+function selectNext() { const i = selectedIdx.value; if (i > 0) selectedSession.value = sessions.value[i - 1] }
+function onPick(e) {
+  const s = sessions.value.find((x) => x.id === Number(e.target.value))
+  if (s) selectedSession.value = s
+}
+const STATUS_ICON = { planned: '🕐', running: '▶', completed: '✓', failed: '✗', interrupted: '⏸' }
 // Une tâche non terminée peut être relancée / réorientée manuellement.
 const actionable = computed(() => task.value && !['done', 'cancelled'].includes(task.value.status))
 
@@ -98,13 +110,28 @@ async function abandon() {
         </div>
 
         <div class="card pad">
-          <h3>Sessions</h3>
+          <div class="row spread" style="align-items: center; margin-bottom: .6rem">
+            <h3 style="margin: 0">Sessions <span class="muted" style="font-size: .8rem; font-weight: 400">({{ sessions.length }})</span></h3>
+            <!-- Navigation compacte pour les tâches récurrentes (nombreuses sessions) -->
+            <div v-if="manySessions && selectedSession" class="row" style="gap: .3rem; align-items: center">
+              <button class="ghost sm" :disabled="selectedIdx >= sessions.length - 1" @click="selectPrev" title="Session précédente">←</button>
+              <select :value="selectedSession.id" @change="onPick" style="width: auto; font-size: .82rem; padding: .25rem .4rem">
+                <option v-for="s in sessions" :key="s.id" :value="s.id">
+                  n°{{ s.number }} {{ STATUS_ICON[s.status] || '' }} — {{ fmtDate(s.started_at || s.scheduled_at) }}
+                </option>
+              </select>
+              <button class="ghost sm" :disabled="selectedIdx <= 0" @click="selectNext" title="Session suivante">→</button>
+            </div>
+          </div>
           <div v-if="!sessions.length" class="empty">Aucune session pour l'instant.</div>
           <div v-else class="row wrap" style="margin-bottom: .8rem">
-            <button v-for="s in sessions" :key="s.id" class="sm"
+            <button v-for="s in recentSessions" :key="s.id" class="sm"
               :class="{ primary: selectedSession?.id === s.id }" @click="selectedSession = s">
-              n°{{ s.number }} · {{ s.status }}
+              n°{{ s.number }} {{ STATUS_ICON[s.status] || s.status }}
             </button>
+            <span v-if="manySessions" class="muted" style="font-size: .78rem; align-self: center">
+              … {{ sessions.length - recentSessions.length }} plus anciennes via la liste ↑
+            </span>
           </div>
           <template v-if="selectedSession">
             <div class="row spread" style="margin-bottom: .5rem">
