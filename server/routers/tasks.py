@@ -156,6 +156,70 @@ async def attention(user: User = Depends(get_current_user), db: AsyncSession = D
     return {"questions": questions, "stalled": stalled}
 
 
+@router.get("/{task_id}/chain")
+async def task_chain(task_id: int, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Chaîne complète de la tâche : toute l'ascendance et la descendance
+    transitives (plafonnées), avec les liens — pour l'arborescence en modale."""
+    await _get_visible(db, user, task_id)
+    CAP = 60  # garde-fou sur les très longues chaînes
+
+    nodes: dict[int, dict] = {}
+    edges: list[dict] = []
+    seen_edges: set[tuple] = set()
+    frontier = {task_id}
+    visited: set[int] = set()
+
+    while frontier and len(nodes) < CAP:
+        batch = list(frontier - visited)
+        if not batch:
+            break
+        visited |= frontier
+        # Liens dans les deux sens pour tout le lot courant
+        rows = (
+            await db.execute(
+                select(TaskLink).where(
+                    (TaskLink.task_id.in_(batch)) | (TaskLink.linked_task_id.in_(batch))
+                )
+            )
+        ).scalars().all()
+        frontier = set()
+        for l in rows:
+            key = (l.task_id, l.linked_task_id, l.kind)
+            if key not in seen_edges:
+                seen_edges.add(key)
+                edges.append({"from": l.linked_task_id, "to": l.task_id, "kind": l.kind})
+            for tid in (l.task_id, l.linked_task_id):
+                if tid not in visited:
+                    frontier.add(tid)
+
+    ids = {task_id} | {e["from"] for e in edges} | {e["to"] for e in edges}
+    trows = (
+        await db.execute(
+            select(Task, Agent).join(Agent, Agent.id == Task.agent_id).where(Task.id.in_(ids))
+        )
+    ).all()
+    nxt: dict = {}
+    if ids:
+        r = await db.execute(
+            select(Session.task_id, func.min(Session.scheduled_at))
+            .where(Session.task_id.in_(ids), Session.status == "planned")
+            .group_by(Session.task_id)
+        )
+        nxt = {tid: at for tid, at in r}
+    for (t, a) in trows:
+        # Ne pas exposer les tâches d'autres comptes si la chaîne les traverse.
+        if t.owner_user_id != user.id:
+            continue
+        nodes[t.id] = {
+            "id": t.id, "title": t.title or t.description[:60], "status": t.status,
+            "agent_name": a.name, "next_session_at": nxt.get(t.id),
+            "created_at": t.created_at,
+        }
+    edges = [e for e in edges if e["from"] in nodes and e["to"] in nodes]
+    return {"root": task_id, "nodes": list(nodes.values()), "edges": edges,
+            "truncated": len(nodes) >= CAP}
+
+
 @router.get("/{task_id}", response_model=TaskDetailOut)
 async def get_task(task_id: int, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     task = await _get_visible(db, user, task_id)

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api.js'
 import { fmtDate, fmtTokens } from '../utils.js'
@@ -33,6 +33,8 @@ async function load() {
   }
 }
 onMounted(load)
+// Naviguer vers une tâche liée reste sur ce composant : recharger quand l'id change.
+watch(() => route.params.id, () => { selectedSession.value = null; chainOpen.value = false; load() })
 
 const selectedRunning = computed(() => selectedSession.value?.status === 'running')
 // Tâches récurrentes : des dizaines de sessions → boutons pour les plus récentes
@@ -47,6 +49,40 @@ function onPick(e) {
   if (s) selectedSession.value = s
 }
 const STATUS_ICON = { planned: '🕐', running: '▶', completed: '✓', failed: '✗', interrupted: '⏸' }
+
+// --- Chaîne des tâches liées (arborescence en modale) ---
+const chainOpen = ref(false)
+const chain = ref(null)   // {root, nodes, edges, truncated}
+async function openChain() {
+  chain.value = await api.get(`/api/tasks/${route.params.id}/chain`)
+  chainOpen.value = true
+}
+// Niveaux chronologiques : profondeur = plus longue chaîne d'antécédents.
+// Niveau 0 = origines ; la tâche courante et l'aval suivent naturellement.
+const chainLevels = computed(() => {
+  if (!chain.value) return []
+  const { nodes, edges } = chain.value
+  const byId = Object.fromEntries(nodes.map((n) => [n.id, n]))
+  const preds = {}   // id -> antécédents
+  for (const e of edges) (preds[e.to] ||= []).push(e.from)
+  const depth = {}
+  function d(id, guard = 0) {
+    if (depth[id] != null) return depth[id]
+    if (guard > 80) return 0
+    const ps = (preds[id] || []).filter((p) => byId[p])
+    return (depth[id] = ps.length ? 1 + Math.max(...ps.map((p) => d(p, guard + 1))) : 0)
+  }
+  nodes.forEach((n) => d(n.id))
+  const levels = []
+  for (const n of nodes) (levels[depth[n.id]] ||= []).push(n)
+  return levels.map((l) => l.sort((a, b) => a.id - b.id)).filter(Boolean)
+})
+function edgeKinds(nodeId) {
+  // libellé du lien qui mène à ce nœud (depends_on / follow_up)
+  const kinds = (chain.value?.edges || []).filter((e) => e.to === nodeId).map((e) => e.kind)
+  return kinds.includes('depends_on') ? 'dépend de' : (kinds.length ? 'fait suite à' : '')
+}
+function gotoTask(id) { chainOpen.value = false; router.push('/tasks/' + id) }
 // Une tâche non terminée peut être relancée / réorientée manuellement.
 const actionable = computed(() => task.value && !['done', 'cancelled'].includes(task.value.status))
 
@@ -159,7 +195,11 @@ async function abandon() {
 
       <div class="stack">
         <div class="card pad">
-          <h3>Tâches liées</h3>
+          <div class="row spread" style="align-items: center">
+            <h3 style="margin: 0">Tâches liées</h3>
+            <button v-if="task.antecedents.length || task.dependents.length" class="ghost sm"
+              @click="openChain" title="Voir toute la chaîne des tâches liées">🔗 Chaîne</button>
+          </div>
           <div v-if="task.antecedents.length">
             <div class="muted" style="font-size: .8rem">Amont (ressources héritées)</div>
             <div v-for="a in task.antecedents" :key="'a'+a.task_id" class="navlink" @click="router.push('/tasks/' + a.task_id)">
@@ -181,6 +221,35 @@ async function abandon() {
 
     <TaskForm v-if="creatingFollowup" :agent-id="task.agent_id" :link-task-id="task.id"
       @close="creatingFollowup = false" @saved="onFollowup" />
+
+    <!-- Chaîne des tâches liées : frise chronologique (origines → courante → à venir) -->
+    <Modal v-if="chainOpen && chain" :title="`Chaîne de la tâche #${chain.root}`" wide @close="chainOpen = false">
+      <p class="muted" style="font-size: .82rem; margin-top: 0">
+        De l'origine (en haut) aux prochaines tâches (en bas). Clique une tâche pour l'ouvrir.
+        <span v-if="chain.truncated"> ⚠ Chaîne longue : affichage tronqué.</span>
+      </p>
+      <div v-for="(level, i) in chainLevels" :key="i">
+        <div v-if="i > 0" class="muted" style="text-align: center; font-size: .8rem; line-height: 1">↓</div>
+        <div class="row wrap" style="gap: .4rem; justify-content: center; margin: .25rem 0">
+          <div v-for="n in level" :key="n.id" class="card pad" @click="gotoTask(n.id)"
+            style="padding: .45rem .6rem; cursor: pointer; max-width: 300px"
+            :style="n.id === chain.root ? 'border: 2px solid var(--primary); box-shadow: 0 0 0 3px var(--primary-weak)' : ''">
+            <div class="row" style="gap: .35rem; align-items: center">
+              <strong style="font-size: .85rem">#{{ n.id }}</strong>
+              <StatusBadge :status="n.status" />
+              <span v-if="n.id === chain.root" class="badge blue" style="font-size: .68rem">courante</span>
+            </div>
+            <div style="font-size: .82rem; margin-top: .15rem; overflow: hidden; text-overflow: ellipsis;
+              display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical">{{ n.title }}</div>
+            <div class="muted" style="font-size: .72rem; margin-top: .15rem">
+              {{ n.agent_name }}
+              <template v-if="edgeKinds(n.id)"> · {{ edgeKinds(n.id) }}</template>
+              <template v-if="n.next_session_at"> · ⏱ {{ fmtDate(n.next_session_at) }}</template>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Modal>
 
     <Modal v-if="relanceOpen" :title="`Relancer la tâche #${task.id}`" @close="relanceOpen = false">
       <p class="muted" style="font-size: .85rem">
