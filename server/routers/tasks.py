@@ -149,7 +149,8 @@ async def attention(user: User = Depends(get_current_user), db: AsyncSession = D
     ).all()
     stalled = [
         {"task_id": t.id, "title": t.title or t.description[:80],
-         "agent_id": a.id, "agent_name": a.name, "consecutive_stalls": t.consecutive_stalls}
+         "agent_id": a.id, "agent_name": a.name, "agent_paused": a.paused,
+         "consecutive_stalls": t.consecutive_stalls}
         for (t, a) in srows
     ]
     return {"questions": questions, "stalled": stalled}
@@ -258,6 +259,20 @@ async def relance_task(
     task = await _get_visible(db, user, task_id)
     if task.status in ("done", "cancelled"):
         raise HTTPException(status_code=400, detail="Une tâche terminée ne se relance pas")
+    # Agent en pause : la session ne partirait jamais (trompeur). On exige un choix
+    # explicite : resume_agent=true pour réactiver l'agent avec la relance.
+    agent = await db.get(Agent, task.agent_id)
+    if agent and agent.paused:
+        if not body.resume_agent:
+            raise HTTPException(
+                status_code=409,
+                detail=f"L'agent « {agent.name} » est en pause : la session ne partirait pas. "
+                       "Relance avec resume_agent=true pour le réactiver, ou reprends-le d'abord.",
+            )
+        if agent.owner_user_id is None and user.role != "admin":
+            raise HTTPException(status_code=403,
+                                detail="Cet agent système est en pause (réactivation réservée à l'administrateur)")
+        agent.paused = False
     last_obj = (
         await db.execute(
             select(Session.objective).where(Session.task_id == task_id)

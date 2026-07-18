@@ -89,7 +89,16 @@ async function answer(q) {
 function openRelance(item) { relanceTarget.value = item; relanceNote.value = '' }
 async function confirmRelance() {
   if (!relanceTarget.value) return
-  await api.post(`/api/tasks/${relanceTarget.value.task_id}/relance`, { note: relanceNote.value || null })
+  const id = relanceTarget.value.task_id
+  try {
+    await api.post(`/api/tasks/${id}/relance`, { note: relanceNote.value || null })
+  } catch (e) {
+    // Agent en pause : la session ne partirait jamais. Proposer de le réactiver.
+    if (!String(e.message).includes('en pause')) { alert(e.message); return }
+    if (!confirm(e.message + '\n\nRéactiver l\'agent et lancer la session maintenant ?')) return
+    try { await api.post(`/api/tasks/${id}/relance`, { note: relanceNote.value || null, resume_agent: true }) }
+    catch (e2) { alert(e2.message); return }
+  }
   relanceTarget.value = null
   relanceNote.value = ''
   await loadAttention()
@@ -143,7 +152,10 @@ onUnmounted(() => { if (stop) stop() })
             <strong>{{ s.agent_name }}</strong>
             <span class="muted" style="font-size: .82rem"> · tâche #{{ s.task_id }} — {{ s.title }}</span>
           </div>
-          <span class="badge red" style="font-size: .72rem">bloquée ({{ s.consecutive_stalls }}×)</span>
+          <div class="row" style="gap: .3rem">
+            <span v-if="s.agent_paused" class="badge amber" style="font-size: .72rem">⏸ agent en pause</span>
+            <span class="badge red" style="font-size: .72rem">bloquée ({{ s.consecutive_stalls }}×)</span>
+          </div>
         </div>
         <div class="muted" style="font-size: .82rem; margin: .3rem 0">
           L'agent n'avance plus. Relance-le (avec un commentaire pour guider les prochaines sessions) ou abandonne.

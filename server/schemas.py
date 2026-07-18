@@ -207,8 +207,11 @@ class TaskCreateIn(BaseModel):
 
 class TaskRelanceIn(BaseModel):
     """Relance manuelle d'une tâche : crée une session planifiée immédiate.
-    `note` est injectée comme user_note dans le prompt de la prochaine session."""
+    `note` est injectée comme user_note dans le prompt de la prochaine session.
+    `resume_agent` : réactiver l'agent s'il est en pause (sinon la session
+    resterait en attente du dégel — trompeur pour l'utilisateur)."""
     note: str | None = Field(default=None, max_length=4000)
+    resume_agent: bool = False
 
 
 class TaskPatchIn(BaseModel):

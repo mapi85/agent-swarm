@@ -45,7 +45,16 @@ async function onFollowup() { creatingFollowup.value = false; await load() }
 
 function openRelance() { relanceNote.value = ''; relanceOpen.value = true }
 async function confirmRelance() {
-  await api.post(`/api/tasks/${route.params.id}/relance`, { note: relanceNote.value || null })
+  try {
+    await api.post(`/api/tasks/${route.params.id}/relance`, { note: relanceNote.value || null })
+  } catch (e) {
+    // Agent en pause : la session ne partirait jamais. Proposer de le réactiver.
+    if (!String(e.message).includes('en pause')) { alert(e.message); return }
+    if (!confirm(e.message + '\n\nRéactiver l\'agent et lancer la session maintenant ?')) return
+    try {
+      await api.post(`/api/tasks/${route.params.id}/relance`, { note: relanceNote.value || null, resume_agent: true })
+    } catch (e2) { alert(e2.message); return }
+  }
   relanceOpen.value = false
   await load()
 }
