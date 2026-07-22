@@ -10,6 +10,7 @@ Les tours assistant produits par un provider Anthropic restent des objets SDK
 dicts. Les deux providers savent relire les deux représentations.
 """
 import json
+import logging
 import re
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
@@ -20,6 +21,8 @@ from anthropic import AsyncAnthropic
 
 from .crypto import decrypt_secret
 from .models import Provider
+
+log = logging.getLogger("swarm.llm")
 
 ANTHROPIC_DEFAULT_BASE = "https://api.anthropic.com"
 
@@ -213,8 +216,8 @@ def _to_openai_messages(system, messages):
             msg = {"role": "assistant", "content": "\n".join(p for p in text_parts if p)}
             if tool_calls:
                 msg["tool_calls"] = tool_calls
-                if not msg["content"]:
-                    msg["content"] = None
+                # "" et non None : plusieurs endpoints OpenAI-compatibles (dont l'API
+                # Gemini) rejettent content=null sur un tour assistant à appel d'outil.
             out.append(msg)
         else:  # user
             text_parts = []
@@ -267,7 +270,17 @@ class OpenAIProvider:
                 headers={"Authorization": f"Bearer {self.api_key}",
                          "Content-Type": "application/json"},
             )
-            r.raise_for_status()
+            if r.status_code >= 400:
+                # Le corps (souvent {"error": {"message": ...}}) est le seul indice
+                # exploitable pour diagnostiquer un 400 — on l'inclut dans l'erreur.
+                try:
+                    detail = json.dumps(r.json(), ensure_ascii=False)[:800]
+                except ValueError:
+                    detail = r.text[:800]
+                log.warning("erreur provider %s (%s) : %s", self.name, r.status_code, detail)
+                raise httpx.HTTPStatusError(
+                    f"{r.status_code} {r.reason_phrase} — {detail}", request=r.request, response=r,
+                )
             data = r.json()
 
         choice = data["choices"][0]
