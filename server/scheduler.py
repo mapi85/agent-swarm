@@ -169,8 +169,14 @@ async def _tick() -> None:
             db.add(Session(
                 task_id=task.id, agent_id=agent.id, number=number, status="planned",
                 scheduled_at=now,
-                objective="Cycle de veille : vérifie l'état courant (file d'ordres, marché, messages) "
-                          "et agis si nécessaire, puis clos la session.",
+                objective="Cycle de veille : commence par LIRE l'état réel (fichiers d'état partagé, "
+                          "messages, données de marché à jour via tes outils) — n'utilise jamais un "
+                          "résultat ou un fichier d'une tâche/session passée comme s'il était actuel. "
+                          "Agis seulement si l'état lu le justifie. Si tu affirmes avoir agi (ordre "
+                          "envoyé, message transmis, fichier partagé mis à jour), ce doit correspondre "
+                          "à un appel d'outil réellement effectué dans CETTE session — jamais une "
+                          "action supposée ou déduite. En l'absence de changement d'état, dis-le "
+                          "explicitement plutôt que d'inventer une action. Puis clos la session.",
             ))
         await db.commit()
 
