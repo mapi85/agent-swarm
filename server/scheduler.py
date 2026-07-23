@@ -38,10 +38,15 @@ async def _task_has_active_session(db, task_id: int) -> bool:
 
 async def _heartbeat_task(db, agent: Agent) -> Task:
     """Tâche de veille persistante d'un agent à cadence : les sessions récurrentes
-    s'y rattachent (une seule tâche, plusieurs sessions numérotées)."""
+    s'y rattachent (une seule tâche, plusieurs sessions numérotées).
+
+    Tolérant aux doublons éventuels (créés manuellement ou par une ancienne
+    anomalie) : prend la plus ancienne plutôt que de lever MultipleResultsFound,
+    qui plantait tout le tick du scheduler — pas seulement l'agent concerné."""
     task = (
         await db.execute(
             select(Task).where(Task.agent_id == agent.id, Task.title == _HEARTBEAT_TITLE)
+            .order_by(Task.id).limit(1)
         )
     ).scalar_one_or_none()
     if task is not None:
@@ -151,34 +156,44 @@ async def _tick() -> None:
             )
         ).scalars().all()
         for agent in hb_agents:
-            if await _agent_active_sessions(db, agent.id):
-                continue  # occupé (tâche réelle ou veille déjà en cours) → pas de doublon
-            last_end = (
-                await db.execute(
-                    select(func.max(Session.ended_at)).where(Session.agent_id == agent.id)
-                )
-            ).scalar()
-            if last_end is not None and now - last_end < timedelta(minutes=agent.heartbeat_minutes):
-                continue  # cadence pas encore échue
-            task = await _heartbeat_task(db, agent)
-            number = (
-                await db.execute(
-                    select(func.coalesce(func.max(Session.number), 0)).where(Session.task_id == task.id)
-                )
-            ).scalar_one() + 1
-            db.add(Session(
-                task_id=task.id, agent_id=agent.id, number=number, status="planned",
-                scheduled_at=now,
-                objective="Cycle de veille : commence par LIRE l'état réel (fichiers d'état partagé, "
-                          "messages, données de marché à jour via tes outils) — n'utilise jamais un "
-                          "résultat ou un fichier d'une tâche/session passée comme s'il était actuel. "
-                          "Agis seulement si l'état lu le justifie. Si tu affirmes avoir agi (ordre "
-                          "envoyé, message transmis, fichier partagé mis à jour), ce doit correspondre "
-                          "à un appel d'outil réellement effectué dans CETTE session — jamais une "
-                          "action supposée ou déduite. En l'absence de changement d'état, dis-le "
-                          "explicitement plutôt que d'inventer une action. Puis clos la session.",
-            ))
-        await db.commit()
+            # Isolé par agent : une erreur (ex. état incohérent pour UN agent) ne
+            # doit jamais empêcher la cadence des AUTRES agents. Incident du 22-23/07 :
+            # une tâche de veille dupliquée pour un agent a fait planter le tick entier
+            # (MultipleResultsFound non capturé), gelant tous les agents à cadence
+            # pendant 13h+ sans qu'aucune erreur ne soit visible dans leur propre suivi.
+            try:
+                if await _agent_active_sessions(db, agent.id):
+                    continue  # occupé (tâche réelle ou veille déjà en cours) → pas de doublon
+                last_end = (
+                    await db.execute(
+                        select(func.max(Session.ended_at)).where(Session.agent_id == agent.id)
+                    )
+                ).scalar()
+                if last_end is not None and now - last_end < timedelta(minutes=agent.heartbeat_minutes):
+                    continue  # cadence pas encore échue
+                task = await _heartbeat_task(db, agent)
+                number = (
+                    await db.execute(
+                        select(func.coalesce(func.max(Session.number), 0)).where(Session.task_id == task.id)
+                    )
+                ).scalar_one() + 1
+                db.add(Session(
+                    task_id=task.id, agent_id=agent.id, number=number, status="planned",
+                    scheduled_at=now,
+                    objective="Cycle de veille : commence par LIRE l'état réel (fichiers d'état partagé, "
+                              "messages, données de marché à jour via tes outils) — n'utilise jamais un "
+                              "résultat ou un fichier d'une tâche/session passée comme s'il était actuel. "
+                              "Agis seulement si l'état lu le justifie. Si tu affirmes avoir agi (ordre "
+                              "envoyé, message transmis, fichier partagé mis à jour), ce doit correspondre "
+                              "à un appel d'outil réellement effectué dans CETTE session — jamais une "
+                              "action supposée ou déduite. En l'absence de changement d'état, dis-le "
+                              "explicitement plutôt que d'inventer une action. Puis clos la session.",
+                ))
+                await db.commit()  # commit par agent : une erreur suivante n'annule pas celui-ci
+            except Exception:
+                log.exception("erreur cadence pour l'agent %s (#%s) — les autres agents ne sont pas affectés",
+                             agent.name, agent.id)
+                await db.rollback()
 
         # 2. Sessions planifiées échues → à lancer (dans la limite de capacité)
         now = datetime.now(timezone.utc)
