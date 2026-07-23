@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
@@ -96,3 +96,17 @@ async def dismiss(notif_id: int, user: User = Depends(get_current_user), db: Asy
     notif.status = "dismissed"
     await db.commit()
     return notif
+
+
+@router.post("/dismiss-all")
+async def dismiss_all(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Marque toutes les ALERTES ouvertes comme lues. Ne touche pas aux questions
+    ouvertes (elles attendent une réponse qui relance une tâche)."""
+    result = await db.execute(
+        update(Notification)
+        .where(Notification.user_id == user.id, Notification.status == "open",
+               Notification.type == "alert")
+        .values(status="dismissed")
+    )
+    await db.commit()
+    return {"dismissed": result.rowcount or 0}

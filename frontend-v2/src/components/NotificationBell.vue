@@ -27,6 +27,11 @@ async function dismiss(n) {
   await api.post(`/api/notifications/${n.id}/dismiss`)
   await load()
 }
+async function dismissAll() {
+  await api.post('/api/notifications/dismiss-all')
+  await load()
+}
+const alertCount = () => items.value.filter((n) => n.type === 'alert').length
 
 onMounted(() => { load(); timer = setInterval(load, 8000) })
 onUnmounted(() => clearInterval(timer))
@@ -41,7 +46,11 @@ defineExpose({ load })
     <div v-if="open" class="card pad popover" @click.stop>
       <div class="row spread" style="margin-bottom: .5rem">
         <strong>Notifications</strong>
-        <button class="ghost sm" @click="open = false">✕</button>
+        <div class="row" style="gap: .3rem">
+          <button v-if="alertCount() > 1" class="ghost sm" @click="dismissAll"
+            title="Marquer toutes les alertes comme lues">✓ Tout lu</button>
+          <button class="ghost sm" @click="open = false">✕</button>
+        </div>
       </div>
       <div v-if="!items.length" class="empty">Rien à traiter 🎉</div>
       <div v-for="n in items" :key="n.id" class="card pad" style="margin-bottom: .5rem">
