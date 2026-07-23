@@ -643,13 +643,44 @@ async def _close_session(db, session_id, task_id, agent_id, user_id, objective, 
                     f"Dernier rapport : {report[:1000]}"
                 )
     else:
-        # Échec / interruption technique.
+        # Échec / interruption technique. Ne doit jamais rester silencieux : on
+        # alerte systématiquement le propriétaire ET on replanifie une reprise
+        # (même logique que le nudge "stalled" ci-dessus), sauf pour une
+        # interruption volontaire (l'utilisateur a explicitement stoppé la session).
         task.status = "failed"
         task.result = report[:4000]
         _notify_delegator(
             f"⚠️ Ta tâche déléguée #{task_id} « {task.title or task.description[:60]} » a échoué "
             f"(erreur : {(error or 'inconnue')[:200]}). Dernier rapport : {report[:1000]}"
         )
+        failed_agent = await db.get(Agent, agent_id)
+        agent_label = failed_agent.name if failed_agent else f"#{agent_id}"
+        db.add(Notification(
+            user_id=user_id, agent_id=agent_id, task_id=task_id, session_id=session_id,
+            type="alert", status="open",
+            content=(f"⚠️ L'agent {agent_label} a échoué sur la tâche #{task_id} "
+                     f"« {task.title or task.description[:60]} » (erreur : {(error or 'inconnue')[:200]}). "
+                     f"Une reprise a été planifiée automatiquement." if error != "interrupted" else
+                     f"⏸ L'agent {agent_label} a été interrompu sur la tâche #{task_id} "
+                     f"« {task.title or task.description[:60]} »."),
+        ))
+        if error != "interrupted":
+            minutes = failed_agent.heartbeat_minutes if (
+                failed_agent and failed_agent.heartbeat_minutes and failed_agent.heartbeat_minutes > 0
+            ) else 30
+            retry_session = Session(
+                task_id=task_id, agent_id=agent_id,
+                number=await _next_session_number(db, task_id),
+                objective=(f"⚠️ La session précédente a échoué (erreur : {(error or 'inconnue')[:200]}). "
+                          f"Reprends la tâche depuis l'état actuel — vérifie ce qui a réellement été "
+                          f"accompli avant de continuer.\nObjectif précédent : {objective}"),
+                status="planned",
+                scheduled_at=datetime.now(timezone.utc) + timedelta(minutes=minutes),
+            )
+            db.add(retry_session)
+            await db.flush()
+            next_id = retry_session.id
+            task.status = "pending"  # reprise planifiée : pas d'impasse "failed" muette
 
     # Mémoire libre : journal de session
     try:
