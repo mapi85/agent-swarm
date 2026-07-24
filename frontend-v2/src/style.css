@@ -90,6 +90,7 @@ th { font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-s
 tbody tr:nth-child(even) { background: var(--surface-2); }         /* zébrage pour la lecture */
 tbody tr:hover { background: var(--primary-weak); }               /* survol (lignes cliquables) */
 
+.md { overflow-wrap: anywhere; }
 .md > *:first-child { margin-top: 0; }
 .md > *:last-child { margin-bottom: 0; }
 .md pre { background: #0f172a; color: #e2e8f0; padding: .8em; border-radius: 8px; overflow-x: auto; }
@@ -160,7 +161,10 @@ tbody tr:hover { background: var(--primary-weak); }               /* survol (lig
   /* Tableaux : défilement horizontal plutôt qu'écrasement (surcharge le overflow:hidden inline) */
   .content table { display: block !important; overflow-x: auto !important; max-width: 100%; }
   .modal, .modal.wide { width: 96vw; }
-  .popover { width: 92vw; }
+  /* Popover : ancré à l'écran (fixed) et non à la cloche, sinon il déborde à
+     gauche hors du viewport quand la cloche est à droite de la topbar. */
+  .popover { position: fixed; top: 4rem; right: 3vw; left: 3vw; width: auto;
+    max-height: 78vh; }
   /* KPIs et badges un peu plus denses */
   .kpi { padding: .6rem .7rem; }
 }
