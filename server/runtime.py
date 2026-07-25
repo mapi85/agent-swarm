@@ -571,9 +571,29 @@ async def _close_session(db, session_id, task_id, agent_id, user_id, objective, 
             db.add(Message(from_agent_id=agent_id, to_agent_id=task.created_by_agent_id, task_id=task_id,
                            content=content))
 
+    # Le next_objective PRIME sur task_completed : si l'agent fournit un objectif
+    # de continuation, il veut continuer — on planifie la suite même s'il a (à
+    # tort) marqué task_completed=True. Sans ça, un agent de veille récurrente qui
+    # coche task_completed voit son next_objective silencieusement ignoré et ne se
+    # replanifie jamais (sa tâche passe 'done' définitivement).
+    explicit_next = (finish_input.get("next_objective") or "").strip()
+
     next_id = None
     if rate_retry_id:
         task.status = "pending"  # reprise planifiée
+    elif finished and explicit_next:
+        # Continuation explicite : PRIORITAIRE sur task_completed. Un next_objective
+        # signifie « je veux continuer » — on planifie la suite quoi qu'il arrive.
+        minutes = max(int(finish_input.get("next_run_minutes") or 60), 1)
+        cont = Session(task_id=task_id, agent_id=agent_id,
+                       number=await _next_session_number(db, task_id), objective=explicit_next,
+                       status="planned",
+                       scheduled_at=datetime.now(timezone.utc) + timedelta(minutes=minutes))
+        db.add(cont)
+        await db.flush()
+        next_id = cont.id
+        task.status = "pending"
+        task.consecutive_stalls = 0
     elif finished and task_completed:
         task.status = "done"
         task.result = task_result[:4000]
@@ -584,21 +604,9 @@ async def _close_session(db, session_id, task_id, agent_id, user_id, objective, 
             f"terminée. Résultat : {task_result[:1500]}"
         )
     elif finished and not task_completed:
-        # Soit continuation explicite (next_objective), soit question (ask_user),
-        # soit — défaut à éliminer — une clôture sans aucune des deux.
-        next_objective = (finish_input.get("next_objective") or "").strip()
-        if next_objective:
-            minutes = max(int(finish_input.get("next_run_minutes") or 60), 1)
-            cont = Session(task_id=task_id, agent_id=agent_id,
-                           number=await _next_session_number(db, task_id), objective=next_objective,
-                           status="planned",
-                           scheduled_at=datetime.now(timezone.utc) + timedelta(minutes=minutes))
-            db.add(cont)
-            await db.flush()
-            next_id = cont.id
-            task.status = "pending"
-            task.consecutive_stalls = 0
-        elif asked_question:
+        # Ici : ni continuation explicite (déjà traitée plus haut), ni tâche
+        # terminée. Reste soit une question (ask_user), soit une impasse à éliminer.
+        if asked_question:
             # L'agent a explicitement sollicité l'utilisateur : attente légitime et visible.
             task.status = "waiting_user"
             task.consecutive_stalls = 0
