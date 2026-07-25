@@ -49,6 +49,12 @@ function onPick(e) {
   if (s) selectedSession.value = s
 }
 const STATUS_ICON = { planned: '🕐', running: '▶', completed: '✓', failed: '✗', interrupted: '⏸' }
+// Prochaine session planifiée (objectif = le next_objective de l'agent).
+const nextPlanned = computed(() => {
+  const p = sessions.value.filter((s) => s.status === 'planned')
+  if (!p.length) return null
+  return p.slice().sort((a, b) => (a.scheduled_at || '').localeCompare(b.scheduled_at || ''))[0]
+})
 
 // --- Chaîne des tâches liées (arborescence en modale) ---
 const chainOpen = ref(false)
@@ -132,6 +138,15 @@ async function abandon() {
         <button v-if="actionable" class="sm danger" @click="abandon">Abandonner</button>
         <button class="sm" @click="creatingFollowup = true">+ Tâche de suite</button>
       </div>
+    </div>
+
+    <!-- Prochain objectif : ce que l'agent fera à sa prochaine session planifiée -->
+    <div v-if="nextPlanned" class="card pad" style="margin: .4rem 0; border-left: 3px solid var(--primary)">
+      <div class="row spread" style="align-items: baseline">
+        <strong style="font-size: .82rem; color: var(--primary)">▶ Prochain objectif</strong>
+        <span class="muted" style="font-size: .78rem">⏱ {{ fmtDate(nextPlanned.scheduled_at) }}</span>
+      </div>
+      <div style="white-space: pre-wrap; font-size: .88rem; margin-top: .3rem">{{ nextPlanned.objective }}</div>
     </div>
 
     <div class="grid" style="grid-template-columns: 2fr 1fr; align-items: start">

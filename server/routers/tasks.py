@@ -84,6 +84,7 @@ async def list_tasks(
     # Prochaine session planifiée par tâche (une requête groupée, pas de N+1)
     ids = [t.id for t in tasks]
     nxt: dict = {}
+    nxt_obj: dict = {}
     blocked: dict[int, list] = {}
     if ids:
         rows = await db.execute(
@@ -92,6 +93,17 @@ async def list_tasks(
             .group_by(Session.task_id)
         )
         nxt = {tid: at for tid, at in rows}
+        # Objectif de la prochaine session planifiée (= le next_objective de l'agent)
+        if nxt:
+            obj_rows = (
+                await db.execute(
+                    select(Session.task_id, Session.objective, Session.scheduled_at)
+                    .where(Session.task_id.in_(list(nxt.keys())), Session.status == "planned")
+                )
+            ).all()
+            for tid, obj, sched in obj_rows:
+                if sched == nxt.get(tid):  # la plus proche
+                    nxt_obj[tid] = obj
         # Dépendances depends_on non terminées (ce que chaque tâche attend)
         blk_rows = (
             await db.execute(
@@ -110,6 +122,7 @@ async def list_tasks(
     for t in tasks:
         o = TaskOut.model_validate(t)
         o.next_session_at = nxt.get(t.id)
+        o.next_objective = nxt_obj.get(t.id)
         o.blocked_by = blocked.get(t.id, [])
         out.append(o)
     return out

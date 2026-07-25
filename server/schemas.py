@@ -247,6 +247,7 @@ class TaskOut(BaseModel):
     created_at: datetime
     completed_at: datetime | None
     next_session_at: datetime | None = None   # prochaine session planifiée de la tâche
+    next_objective: str | None = None          # objectif de la prochaine session (le next_objective de l'agent)
     blocked_by: list[TaskLinkOut] = Field(default_factory=list)  # dépendances depends_on non terminées
 
 

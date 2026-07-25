@@ -94,7 +94,7 @@ async function onCreated() { creating.value = false; await load() }
 
   </div>
   <table v-else class="card" style="overflow: hidden">
-    <thead><tr><th>#</th><th>Titre</th><th>Agent</th><th>Thème</th><th>Statut</th><th>Attente</th><th>Tokens</th></tr></thead>
+    <thead><tr><th>#</th><th>Titre</th><th>Agent</th><th>Thème</th><th>Statut</th><th>Attente</th><th>Prochain objectif</th><th>Tokens</th></tr></thead>
     <tbody>
       <tr v-for="t in visibleTasks" :key="t.id" style="cursor: pointer"
         @click="router.push('/tasks/' + t.id)" @mouseenter="onEnter($event, t)" @mouseleave="onLeave">
@@ -104,6 +104,8 @@ async function onCreated() { creating.value = false; await load() }
         <td><span v-if="agentCat[t.agent_id]" class="badge teal" style="font-size: .72rem">🏷 {{ agentCat[t.agent_id] }}</span></td>
         <td><StatusBadge :status="t.status" /></td>
         <td><span v-if="waitInfo(t)" class="badge" :class="waitInfo(t).cls" style="font-size: .72rem">{{ waitInfo(t).label }}</span><span v-else class="muted">—</span></td>
+        <td class="muted" style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .82rem"
+          :title="t.next_objective || ''">{{ t.next_objective || '—' }}</td>
         <td class="muted">{{ fmtTokens(t.input_tokens + t.output_tokens) }}</td>
       </tr>
     </tbody>
@@ -118,6 +120,10 @@ async function onCreated() { creating.value = false; await load() }
       <StatusBadge :status="hover.task.status" />
     </div>
     <div class="muted" style="font-size: .85rem; white-space: pre-wrap; max-height: 40vh; overflow: hidden">{{ hover.task.description }}</div>
+    <div v-if="hover.task.next_objective" style="margin-top: .5rem; font-size: .85rem">
+      <strong style="font-size: .78rem; color: var(--primary)">▶ PROCHAIN OBJECTIF</strong>
+      <div style="white-space: pre-wrap; max-height: 20vh; overflow: hidden">{{ hover.task.next_objective }}</div>
+    </div>
     <div v-if="hover.task.result" style="margin-top: .5rem; font-size: .85rem">
       <strong style="font-size: .78rem; color: var(--muted)">RÉSULTAT</strong>
       <div class="muted" style="white-space: pre-wrap; max-height: 20vh; overflow: hidden">{{ hover.task.result.slice(0, 500) }}</div>

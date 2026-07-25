@@ -187,7 +187,10 @@ async def _tick() -> None:
                               "envoyé, message transmis, fichier partagé mis à jour), ce doit correspondre "
                               "à un appel d'outil réellement effectué dans CETTE session — jamais une "
                               "action supposée ou déduite. En l'absence de changement d'état, dis-le "
-                              "explicitement plutôt que d'inventer une action. Puis clos la session.",
+                              "explicitement plutôt que d'inventer une action. Puis clos la session "
+                              "avec finish_session en fournissant TOUJOURS un next_objective et un "
+                              "next_run_minutes (c'est une veille récurrente : ne marque JAMAIS "
+                              "task_completed=true, la veille ne se termine pas).",
                 ))
                 await db.commit()  # commit par agent : une erreur suivante n'annule pas celui-ci
             except Exception:
