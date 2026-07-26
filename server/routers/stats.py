@@ -15,6 +15,49 @@ router = APIRouter(prefix="/api/stats", tags=["stats"])
 _PERIODS = {"all": None, "7d": timedelta(days=7), "24h": timedelta(hours=24)}
 
 
+def _fill_buckets(raw, bucket, since):
+    """Comble les tranches vides pour un histogramme continu et régulier.
+
+    Sans ça, les jours/heures sans activité manquent : les barres se collent et
+    la période (7 jours, 24h) ne se lit pas. On génère toutes les tranches de la
+    fenêtre (0 token quand rien), du début à maintenant.
+    - bucket="hour" -> pas d'1 heure, label "JJ/MM HHh"
+    - bucket="day"  -> pas d'1 jour, label "JJ/MM"
+    """
+    step = timedelta(hours=1) if bucket == "hour" else timedelta(days=1)
+    now = datetime.now(timezone.utc)
+
+    def floor(dt):
+        dt = dt.astimezone(timezone.utc)
+        return (dt.replace(minute=0, second=0, microsecond=0) if bucket == "hour"
+                else dt.replace(hour=0, minute=0, second=0, microsecond=0))
+
+    counts = {floor(r["b"]): (r["t"] or 0, r["s"] or 0) for r in raw if r["b"] is not None}
+    # Début de la fenêtre : `since` si défini (7d/24h), sinon la 1re donnée réelle (all).
+    if since is not None:
+        start = floor(since)
+    elif counts:
+        start = min(counts)
+    else:
+        return []
+
+    out = []
+    cur = start
+    end = floor(now)
+    # Garde-fou : au-delà de ~800 tranches (ex. "all" sur des mois en horaire),
+    # on ne pré-remplit pas à l'infini — mais day reste raisonnable sur l'échelle du projet.
+    max_slots = 800
+    while cur <= end and len(out) < max_slots:
+        t, s = counts.get(cur, (0, 0))
+        if bucket == "hour":
+            label = cur.strftime("%d/%m %Hh")
+        else:
+            label = cur.strftime("%d/%m")
+        out.append({"label": label, "t": t, "s": s})
+        cur += step
+    return out
+
+
 @router.get("/tokens")
 async def token_stats(
     period: str = "all",
@@ -50,11 +93,13 @@ async def token_stats(
         f"SELECT COALESCE(p.name,'—') name, SUM(tu.input_tokens) i, SUM(tu.output_tokens) o "
         f"FROM token_usage tu LEFT JOIN providers p ON p.id=tu.provider_id WHERE {w} "
         f"GROUP BY p.name ORDER BY SUM(tu.input_tokens+tu.output_tokens) DESC")
+    # Regroupement : 24h -> par heure ; 7j/tout -> par jour.
     bucket = "hour" if period == "24h" else "day"
-    by_time = await rows(
-        f"SELECT to_char(date_trunc('{bucket}', tu.ts), 'YYYY-MM-DD HH24:MI') label, "
+    raw = await rows(
+        f"SELECT date_trunc('{bucket}', tu.ts) b, "
         f"SUM(tu.input_tokens+tu.output_tokens) t, COUNT(DISTINCT tu.session_id) s "
         f"FROM token_usage tu WHERE {w} GROUP BY 1 ORDER BY 1")
+    by_time = _fill_buckets(raw, bucket, since)
 
     total = (totals["i"] or 0) + (totals["o"] or 0)
     sess = totals["s"] or 0

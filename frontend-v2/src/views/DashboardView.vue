@@ -257,7 +257,7 @@ onUnmounted(() => { if (stop) stop() })
           <div class="muted" style="font-size: .68rem; margin-bottom: 3px">{{ fmtTokens(b.t) }}</div>
           <div :style="{ height: (b.t / maxBar * 160 + 4) + 'px' }"
             style="width: 26px; background: var(--primary); border-radius: 4px 4px 0 0"></div>
-          <div class="muted" style="font-size: .68rem; margin-top: .4rem; white-space: nowrap; transform: translateY(1.2rem)">{{ b.label.slice(5) }}</div>
+          <div class="muted" style="font-size: .68rem; margin-top: .4rem; white-space: nowrap; transform: translateY(1.2rem)">{{ b.label }}</div>
         </div>
       </div>
     </div>
