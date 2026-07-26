@@ -133,7 +133,8 @@ async def approve(mission_id: int, user: User = Depends(get_current_user), db: A
     if mission.status != "proposed":
         raise HTTPException(status_code=400, detail="Mission déjà validée")
     result = await planner.materialize(db, mission, user)
-    return {"status": "running", **result}
+    # materialize a mis le bon statut : 'archived' (agents créés) ou 'running' (one-shot).
+    return {"status": mission.status, **result}
 
 
 @router.post("/{mission_id}/archive", response_model=MissionOut)
